@@ -9,104 +9,149 @@ TEMPLATE = """
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Real-Time System Monitor</title>
+  <title>System Monitor Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Bootstrap -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+
   <style>
-    body { background: #0f172a; color: #e6eef8; }
-    .card { background: rgba(255,255,255,0.04); border: none; }
-    .metric { font-weight: 700; font-size: 1.25rem; }
-    canvas { background: rgba(255,255,255,0.02); border-radius: 8px; padding: 10px; }
-    .small-muted { color: #9fb0d6; font-size: .85rem; }
+    body {
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: #e2e8f0;
+      font-family: 'Poppins', sans-serif;
+    }
+
+    .dashboard-title {
+      font-size: 2rem;
+      font-weight: 600;
+      color: #38bdf8;
+      text-shadow: 0 0 8px rgba(56,189,248,0.6);
+    }
+
+    .card-glass {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(12px);
+      border-radius: 16px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.08);
+      transition: 0.3s;
+    }
+    .card-glass:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .metric-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+
+    .small-muted {
+      color: #9ca3af;
+      font-size: .85rem;
+    }
+
+    canvas {
+      padding: 5px;
+    }
   </style>
 </head>
+
 <body>
 <div class="container py-4">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3>Real-Time System Monitor</h3>
-    <div class="small-muted">Last update: <span id="last-update">-</span></div>
+
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="dashboard-title">⚡ Real-Time System Monitor</div>
+    <div class="small-muted">Updated: <span id="last-update">--</span></div>
   </div>
 
-  <div class="row g-3">
+  <div class="row g-4">
+
+    <!-- CPU -->
     <div class="col-md-6">
-      <div class="card p-3">
+      <div class="card-glass">
         <div class="d-flex justify-content-between">
           <div>
             <div class="small-muted">CPU Usage</div>
-            <div id="cpu-text" class="metric">--%</div>
+            <div id="cpu-text" class="metric-value">--%</div>
             <div class="small-muted" id="cpu-cores">Cores: --</div>
+            <div class="small-muted" id="percore">--</div>
           </div>
-          <div style="width: 45%;">
+          <div style="width: 55%;">
             <canvas id="cpuChart" height="140"></canvas>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Memory -->
     <div class="col-md-6">
-      <div class="card p-3">
+      <div class="card-glass">
         <div class="d-flex justify-content-between">
           <div>
             <div class="small-muted">Memory Usage</div>
-            <div id="mem-text" class="metric">--%</div>
+            <div id="mem-text" class="metric-value">--%</div>
             <div class="small-muted" id="mem-details">Used: -- / --</div>
           </div>
-          <div style="width: 45%;">
+          <div style="width: 55%;">
             <canvas id="memChart" height="140"></canvas>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Disk -->
     <div class="col-md-6">
-      <div class="card p-3">
+      <div class="card-glass">
         <div class="small-muted mb-2">Disk Usage</div>
         <div class="d-flex align-items-center">
-          <div style="width: 60%;">
+          <div style="width: 50%;">
             <canvas id="diskChart" height="140"></canvas>
           </div>
           <div class="ps-3">
-            <div id="disk-text" class="metric">--% used</div>
-            <div class="small-muted" id="disk-details">Used: -- / --</div>
+            <div id="disk-text" class="metric-value">--%</div>
+            <div class="small-muted" id="disk-details">--</div>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="col-md-6">
-      <div class="card p-3">
-        <div class="small-muted mb-2">Per-core CPU</div>
-        <div id="percore" class="small-muted">--</div>
-      </div>
-    </div>
   </div>
 
-  <footer class="mt-4 small-muted">Auto-refresh every 1s</footer>
+  <div class="text-center small-muted mt-4">
+    Chart refresh = 1 second · Tracks last 60 seconds
+  </div>
+
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+
 const SAMPLE_COUNT = 60;
 
-function makeLineChart(ctx) {
+function createLineChart(ctx, color) {
   return new Chart(ctx, {
-    type: 'line',
+    type: "line",
     data: {
-      labels: Array(SAMPLE_COUNT).fill(''),
+      labels: Array(SAMPLE_COUNT).fill(""),
       datasets: [{
         data: Array(SAMPLE_COUNT).fill(null),
-        tension: 0.25,
-        fill: true,
-        borderWidth: 1,
+        borderColor: color,
+        backgroundColor: color + "33",
+        tension: 0.3,
+        borderWidth: 2,
         pointRadius: 0
       }]
     },
     options: {
-      animation: false,
       responsive: true,
-      maintainAspectRatio: false,
+      animation: false,
       scales: {
-        y: { min: 0, max: 100, ticks: { callback: v => v + '%' } },
+        y: { min: 0, max: 100, ticks: { callback: v => v + "%" } },
         x: { display: false }
       },
       plugins: { legend: { display: false } }
@@ -114,67 +159,68 @@ function makeLineChart(ctx) {
   });
 }
 
-function makeDoughnutChart(ctx) {
+function createDoughnutChart(ctx) {
   return new Chart(ctx, {
-    type: 'doughnut',
+    type: "doughnut",
     data: {
-      labels: ['Used', 'Free'],
-      datasets: [{ data: [0, 100], borderWidth: 0 }]
+      labels: ["Used", "Free"],
+      datasets: [{
+        data: [0, 100],
+        backgroundColor: ["#ef4444", "#22c55e"]
+      }]
     },
     options: {
       animation: false,
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom' }
-      }
+      plugins: { legend: { labels: { color: "white" } } }
     }
   });
 }
 
-const cpuChart = makeLineChart(document.getElementById('cpuChart'));
-const memChart = makeLineChart(document.getElementById('memChart'));
-const diskChart = makeDoughnutChart(document.getElementById('diskChart'));
+const cpuChart = createLineChart(cpuChartCtx = document.getElementById("cpuChart"), "#38bdf8");
+const memChart = createLineChart(memChartCtx = document.getElementById("memChart"), "#a78bfa");
+const diskChart = createDoughnutChart(document.getElementById("diskChart"));
 
-function pushData(chart, value) {
+function updateChart(chart, value) {
   chart.data.datasets[0].data.push(value);
-  if (chart.data.datasets[0].data.length > SAMPLE_COUNT) chart.data.datasets[0].data.shift();
-  chart.update('none');
+  if (chart.data.datasets[0].data.length > SAMPLE_COUNT)
+      chart.data.datasets[0].data.shift();
+  chart.update("none");
 }
 
-async function fetchAndUpdate() {
-  const res = await fetch('/metrics');
-  const data = await res.json();
+async function updateMetrics() {
+  const res = await fetch("/metrics");
+  const d = await res.json();
 
-  document.getElementById('last-update').innerText = data.timestamp;
+  document.getElementById("last-update").innerText = d.timestamp;
 
   // CPU
-  document.getElementById('cpu-text').innerText = data.cpu.percent.toFixed(1) + "%";
-  document.getElementById('cpu-cores').innerText = "Cores: " + data.cpu.cores;
-  document.getElementById('percore').innerText = data.cpu.percore.map(x => x.toFixed(1) + "%").join(" | ");
-  pushData(cpuChart, data.cpu.percent);
+  document.getElementById("cpu-text").innerText = d.cpu.percent.toFixed(1) + "%";
+  document.getElementById("cpu-cores").innerText = "Cores: " + d.cpu.cores;
+  document.getElementById("percore").innerText = d.cpu.percore.map(x => x.toFixed(1)).join(" • ");
+  updateChart(cpuChart, d.cpu.percent);
 
   // Memory
-  document.getElementById('mem-text').innerText = data.mem.percent.toFixed(1) + "%";
-  document.getElementById('mem-details').innerText = `Used: ${data.mem.used_human} / ${data.mem.total_human}`;
-  pushData(memChart, data.mem.percent);
+  document.getElementById("mem-text").innerText = d.mem.percent.toFixed(1) + "%";
+  document.getElementById("mem-details").innerText = d.mem.used_human + " / " + d.mem.total_human;
+  updateChart(memChart, d.mem.percent);
 
   // Disk
-  document.getElementById('disk-text').innerText = data.disk.percent.toFixed(1) + "% used";
-  document.getElementById('disk-details').innerText = `Used: ${data.disk.used_human} / ${data.disk.total_human}`;
-  diskChart.data.datasets[0].data = [data.disk.percent, 100 - data.disk.percent];
-  diskChart.update('none');
+  diskChart.data.datasets[0].data = [d.disk.percent, 100 - d.disk.percent];
+  diskChart.update("none");
+  document.getElementById("disk-text").innerText = d.disk.percent.toFixed(1) + "%";
+  document.getElementById("disk-details").innerText = d.disk.used_human + " / " + d.disk.total_human;
 }
 
-setInterval(fetchAndUpdate, 1000);
-fetchAndUpdate();
+setInterval(updateMetrics, 1000);
+updateMetrics();
+
 </script>
 </body>
 </html>
 """
 
 def bytes2human(n):
-    symbols = ('B','KB','MB','GB','TB','PB')
+    symbols = ["B","KB","MB","GB","TB","PB"]
     for i, s in enumerate(symbols):
         step = 1 << (i * 10)
         if n >= step:
@@ -187,29 +233,22 @@ def index():
 
 @app.route("/metrics")
 def metrics():
-    cpu_percent = psutil.cpu_percent(interval=None)
-    per_core = psutil.cpu_percent(interval=None, percpu=True)
-    cores = psutil.cpu_count()
-
-    mem = psutil.virtual_memory()
-    disk = psutil.disk_usage('/')
-
     return jsonify({
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "cpu": {
-            "percent": cpu_percent,
-            "percore": per_core,
-            "cores": cores
+            "percent": psutil.cpu_percent(interval=None),
+            "percore": psutil.cpu_percent(interval=None, percpu=True),
+            "cores": psutil.cpu_count()
         },
         "mem": {
-            "percent": mem.percent,
-            "used_human": bytes2human(mem.used),
-            "total_human": bytes2human(mem.total)
+            "percent": psutil.virtual_memory().percent,
+            "used_human": bytes2human(psutil.virtual_memory().used),
+            "total_human": bytes2human(psutil.virtual_memory().total)
         },
         "disk": {
-            "percent": disk.percent,
-            "used_human": bytes2human(disk.used),
-            "total_human": bytes2human(disk.total)
+            "percent": psutil.disk_usage('/').percent,
+            "used_human": bytes2human(psutil.disk_usage('/').used),
+            "total_human": bytes2human(psutil.disk_usage('/').total)
         }
     })
 
