@@ -3,12 +3,11 @@ pipeline {
 
     environment {
         DOCKERHUB_USER = "ayushnp10"
-        DOCKERHUB_REPO = "devopsaba"
-        IMAGE = "${DOCKERHUB_USER}/${DOCKERHUB_REPO}:latest"
+        IMAGE = "ayushnp10/devopsaba:latest"
     }
 
     stages {
-        
+
         stage('Checkout Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/ayushnp/devopsaba.git'
@@ -26,9 +25,11 @@ pipeline {
 
         stage('Login to Docker Hub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', 
-                                                 usernameVariable: 'USER', 
-                                                 passwordVariable: 'PASS')]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
                     bat """
                         echo %PASS% | docker login -u %USER% --password-stdin
                     """
@@ -47,13 +48,13 @@ pipeline {
         stage('Deploy Container') {
             steps {
                 bat """
-                    echo Stopping old container if exists...
+                    echo Stopping old container...
                     docker stop devopsaba || exit 0
 
-                    echo Removing old container if exists...
+                    echo Removing old container...
                     docker rm devopsaba || exit 0
 
-                    echo Running new container...
+                    echo Running new updated container...
                     docker run -d -p 5000:5000 --name devopsaba %IMAGE%
                 """
             }
@@ -62,10 +63,10 @@ pipeline {
 
     post {
         success {
-            echo "Deployment Successful!"
+            echo "CI/CD Pipeline Completed Successfully!"
         }
         failure {
-            echo "Build or Deployment Failed!"
+            echo "Pipeline Failed!"
         }
     }
 }
