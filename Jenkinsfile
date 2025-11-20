@@ -44,19 +44,19 @@ pipeline {
         }
 
         stage('Deploy Container') {
-            steps {
-                bat """
-                    echo Stopping old container...
-                    docker stop devopsaba || exit 0
+        steps {
+        bat """
+            echo Stopping old container...
+            docker stop devopsaba || echo "No container to stop"
 
-                    echo Removing old container...
-                    docker rm devopsaba || exit 0
+            echo Removing old container...
+            docker rm devopsaba || echo "No container to remove"
 
-                    echo Running NEW container...
-                    docker run -d -p 5000:5000 --name devopsaba %IMAGE%
-                """
-            }
-        }
+            echo Running new updated container...
+            docker run -d -p 5000:5000 --name devopsaba %IMAGE%
+        """
+    }
+}
     }
 
     post {
