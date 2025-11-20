@@ -2,43 +2,60 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = "ayushdocker/cicd-demo"
-        DOCKER_CREDENTIALS = "dockerhub"
+        DOCKERHUB_USER = credentials('dockerhub-user')   // Jenkins Credentials ID
+        DOCKERHUB_PASS = credentials('dockerhub-pass')   // Jenkins Credentials ID
+        IMAGE_NAME = "ayushnp/devopsaba"
     }
 
     stages {
-        stage('Clone Code') {
+
+        stage('Checkout Code') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/<username>/ci-cd-demo-app.git'
+                git url: 'https://github.com/ayushnp/devopsaba.git', branch: 'main'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    sh 'docker build -t $DOCKER_IMAGE .'
-                }
+                bat """
+                docker build -t %IMAGE_NAME% .
+                """
             }
         }
 
-        stage('Push to Docker Hub') {
+        stage('Login to Docker Hub') {
             steps {
-                script {
-                    docker.withRegistry('', DOCKER_CREDENTIALS) {
-                        sh "docker push $DOCKER_IMAGE"
-                    }
-                }
+                bat """
+                echo %DOCKERHUB_PASS% | docker login -u %DOCKERHUB_USER% --password-stdin
+                """
+            }
+        }
+
+        stage('Push Image to Docker Hub') {
+            steps {
+                bat """
+                docker push %IMAGE_NAME%
+                """
             }
         }
 
         stage('Deploy Container') {
             steps {
-                script {
-                    sh "docker rm -f cicd-app || true"
-                    sh "docker run -d -p 5000:5000 --name cicd-app $DOCKER_IMAGE"
-                }
+                bat """
+                docker stop devopsaba || exit 0
+                docker rm devopsaba || exit 0
+                docker run -d --name devopsaba -p 8080:8080 %IMAGE_NAME%
+                """
             }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment Successful!'
+        }
+        failure {
+            echo 'Build Failed!'
         }
     }
 }
