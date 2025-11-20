@@ -2,40 +2,44 @@ pipeline {
     agent any
 
     environment {
-        // Single Jenkins credential (Username + Password)
-        DOCKERHUB = credentials('dockerhub-creds')
-
-        IMAGE_NAME = "ayushnp10/devopsaba"
+        DOCKERHUB_USER = "ayushnp10"
+        DOCKERHUB_REPO = "devopsaba"
+        IMAGE = "${DOCKERHUB_USER}/${DOCKERHUB_REPO}:latest"
     }
 
     stages {
-
+        
         stage('Checkout Code') {
             steps {
-                git url: 'https://github.com/ayushnp/devopsaba.git', branch: 'main'
+                git branch: 'main', url: 'https://github.com/ayushnp/devopsaba.git'
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 bat """
-                docker build -t %IMAGE_NAME% .
+                    echo Building Docker Image...
+                    docker build -t %IMAGE% .
                 """
             }
         }
 
         stage('Login to Docker Hub') {
             steps {
-                bat """
-                echo %DOCKERHUB_PSW% | docker login -u %DOCKERHUB_USR% --password-stdin
-                """
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', 
+                                                 usernameVariable: 'USER', 
+                                                 passwordVariable: 'PASS')]) {
+                    bat """
+                        echo %PASS% | docker login -u %USER% --password-stdin
+                    """
+                }
             }
         }
 
         stage('Push Image to Docker Hub') {
             steps {
                 bat """
-                docker push %IMAGE_NAME%
+                    docker push %IMAGE%
                 """
             }
         }
@@ -43,9 +47,14 @@ pipeline {
         stage('Deploy Container') {
             steps {
                 bat """
-                docker stop devopsaba || exit 0
-                docker rm devopsaba || exit 0
-                docker run -d --name devopsaba -p 8080:8080 %IMAGE_NAME%
+                    echo Stopping old container if exists...
+                    docker stop devopsaba || exit 0
+
+                    echo Removing old container if exists...
+                    docker rm devopsaba || exit 0
+
+                    echo Running new container...
+                    docker run -d -p 5000:5000 --name devopsaba %IMAGE%
                 """
             }
         }
@@ -53,10 +62,10 @@ pipeline {
 
     post {
         success {
-            echo 'Deployment Successful!'
+            echo "Deployment Successful!"
         }
         failure {
-            echo 'Build Failed!'
+            echo "Build or Deployment Failed!"
         }
     }
 }
