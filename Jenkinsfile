@@ -25,11 +25,9 @@ pipeline {
 
         stage('Login to Docker Hub') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub-creds',
-                    usernameVariable: 'USER',
-                    passwordVariable: 'PASS'
-                )]) {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+
                     bat """
                         echo %PASS% | docker login -u %USER% --password-stdin
                     """
@@ -54,7 +52,7 @@ pipeline {
                     echo Removing old container...
                     docker rm devopsaba || exit 0
 
-                    echo Running new updated container...
+                    echo Running NEW container...
                     docker run -d -p 5000:5000 --name devopsaba %IMAGE%
                 """
             }
