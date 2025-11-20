@@ -2,8 +2,9 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_USER = credentials('dockerhub-user')   // Jenkins Credentials ID
-        DOCKERHUB_PASS = credentials('dockerhub-pass')   // Jenkins Credentials ID
+        // Single Jenkins credential (Username + Password)
+        DOCKERHUB = credentials('dockerhub-creds')
+
         IMAGE_NAME = "ayushnp/devopsaba"
     }
 
@@ -26,7 +27,7 @@ pipeline {
         stage('Login to Docker Hub') {
             steps {
                 bat """
-                echo %DOCKERHUB_PASS% | docker login -u %DOCKERHUB_USER% --password-stdin
+                echo %DOCKERHUB_PSW% | docker login -u %DOCKERHUB_USR% --password-stdin
                 """
             }
         }
