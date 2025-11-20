@@ -5,7 +5,7 @@ pipeline {
         // Single Jenkins credential (Username + Password)
         DOCKERHUB = credentials('dockerhub-creds')
 
-        IMAGE_NAME = "ayushnp/devopsaba"
+        IMAGE_NAME = "ayushnp10/devopsaba"
     }
 
     stages {
