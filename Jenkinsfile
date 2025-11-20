@@ -10,7 +10,7 @@ pipeline {
         stage('Clone Code') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/<username>/ci-cd-demo-app.git'
+                    url: 'https://github.com/ayushnp/devopsaba.git'
             }
         }
 
