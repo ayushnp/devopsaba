@@ -1,479 +1,573 @@
-from flask import Flask, request, render_template_string, jsonify
-import ast
-import re
+from flask import Flask, jsonify, render_template_string
+import psutil
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# -------------------------
-# ENHANCED COMPLEXITY DETECTION
-# -------------------------
-
-def detect_python_complexity(code):
-    try:
-        tree = ast.parse(code)
-    except Exception as e:
-        return {
-            "time": "Invalid",
-            "space": "Invalid",
-            "reason": f"Syntax error: {str(e)}",
-            "details": []
-        }
-
-    loop_depth = 0
-    recursion_info = []
-    space_structures = []
-    details = []
-
-    class ComplexityVisitor(ast.NodeVisitor):
-        def __init__(self):
-            self.depth = 0
-            self.max_depth = 0
-            self.loop_count = 0
-            self.func_names = set()
-            self.recursive_calls = set()
-
-        def visit_FunctionDef(self, node):
-            self.func_names.add(node.name)
-            self.generic_visit(node)
-
-        def visit_For(self, node):
-            self.depth += 1
-            self.loop_count += 1
-            self.max_depth = max(self.max_depth, self.depth)
-            details.append(f"For loop at depth {self.depth}")
-            self.generic_visit(node)
-            self.depth -= 1
-
-        def visit_While(self, node):
-            self.depth += 1
-            self.loop_count += 1
-            self.max_depth = max(self.max_depth, self.depth)
-            details.append(f"While loop at depth {self.depth}")
-            self.generic_visit(node)
-            self.depth -= 1
-
-        def visit_Call(self, node):
-            if isinstance(node.func, ast.Name):
-                if node.func.id in self.func_names:
-                    self.recursive_calls.add(node.func.id)
-                    recursion_info.append(f"Recursive call: {node.func.id}")
-            self.generic_visit(node)
-
-        def visit_List(self, node):
-            space_structures.append("List")
-            self.generic_visit(node)
-
-        def visit_Dict(self, node):
-            space_structures.append("Dictionary")
-            self.generic_visit(node)
-
-        def visit_Set(self, node):
-            space_structures.append("Set")
-            self.generic_visit(node)
-
-    visitor = ComplexityVisitor()
-    visitor.visit(tree)
-    loop_depth = visitor.max_depth
-
-    # Determine time complexity
-    if visitor.recursive_calls:
-        # Check for divide and conquer patterns
-        if any(word in code.lower() for word in ["divide", "merge", "binary"]):
-            time = "O(n log n)"
-            reason = "Divide and conquer recursion (e.g., merge sort, binary search tree)"
-        else:
-            time = "O(2ⁿ)"
-            reason = f"Exponential recursion detected in: {', '.join(visitor.recursive_calls)}"
-    elif loop_depth == 0:
-        time = "O(1)"
-        reason = "Constant time - no loops or recursion"
-    elif loop_depth == 1:
-        # Check for binary search pattern
-        if "while" in code and any(op in code for op in ["//", "//"]):
-            time = "O(log n)"
-            reason = "Logarithmic time - binary search pattern detected"
-        else:
-            time = "O(n)"
-            reason = "Linear time - single loop iteration"
-    elif loop_depth == 2:
-        time = "O(n²)"
-        reason = "Quadratic time - nested loops detected"
-    elif loop_depth == 3:
-        time = "O(n³)"
-        reason = "Cubic time - triple nested loops"
-    else:
-        time = f"O(n^{loop_depth})"
-        reason = f"Polynomial time - {loop_depth} nested loops"
-
-    # Determine space complexity
-    if visitor.recursive_calls:
-        space = "O(n)"
-        space_reason = "Recursion call stack"
-    elif space_structures:
-        space = "O(n)"
-        space_reason = f"Data structures: {', '.join(set(space_structures))}"
-    else:
-        space = "O(1)"
-        space_reason = "Constant space - only primitive variables"
-
-    # Add details
-    if visitor.loop_count > 0:
-        details.append(f"Total loops: {visitor.loop_count}")
-    if visitor.recursive_calls:
-        details.extend(recursion_info)
-    if space_structures:
-        details.append(f"Space structures: {', '.join(set(space_structures))}")
-
-    return {
-        "time": time,
-        "space": space,
-        "reason": reason,
-        "space_reason": space_reason,
-        "details": details
-    }
-
-
-def detect_java_complexity(code):
-    details = []
-    
-    # Count loops
-    for_loops = len(re.findall(r'\bfor\s*\(', code))
-    while_loops = len(re.findall(r'\bwhile\s*\(', code))
-    total_loops = for_loops + while_loops
-    
-    # Detect recursion
-    func_pattern = r'\b(\w+)\s*\([^)]*\)\s*\{'
-    funcs = re.findall(func_pattern, code)
-    recursive_funcs = []
-    
-    for func in funcs:
-        # Check if function calls itself
-        if len(re.findall(rf'\b{func}\s*\(', code)) > 1:
-            recursive_funcs.append(func)
-    
-    # Detect space structures
-    space_structures = []
-    if 'new ArrayList' in code or 'new LinkedList' in code:
-        space_structures.append('List')
-    if 'new HashMap' in code or 'new HashSet' in code:
-        space_structures.append('Map/Set')
-    if 'new int[' in code or 'new String[' in code:
-        space_structures.append('Array')
-    
-    # Determine time complexity
-    if recursive_funcs:
-        details.append(f"Recursive methods: {', '.join(recursive_funcs)}")
-        time = "O(2ⁿ)"
-        reason = "Exponential - recursive method detected"
-    elif total_loops == 0:
-        time = "O(1)"
-        reason = "Constant time - no loops"
-    elif total_loops == 1:
-        time = "O(n)"
-        reason = "Linear time - single loop"
-    elif total_loops == 2:
-        time = "O(n²)"
-        reason = "Quadratic time - nested loops"
-    elif total_loops >= 3:
-        time = "O(n³)"
-        reason = "Cubic time - triple nested loops"
-    else:
-        time = "O(n)"
-        reason = "Linear estimation"
-    
-    # Determine space complexity
-    if recursive_funcs:
-        space = "O(n)"
-        space_reason = "Recursion call stack"
-    elif space_structures:
-        space = "O(n)"
-        space_reason = f"Data structures: {', '.join(space_structures)}"
-        details.append(f"Space structures: {', '.join(space_structures)}")
-    else:
-        space = "O(1)"
-        space_reason = "Constant space"
-    
-    if total_loops > 0:
-        details.append(f"Total loops: {total_loops}")
-    
-    return {
-        "time": time,
-        "space": space,
-        "reason": reason,
-        "space_reason": space_reason,
-        "details": details
-    }
-
-
-def analyze_code(code):
-    # Detect language
-    if any(keyword in code for keyword in ["class ", "public ", "static ", "void "]):
-        return detect_java_complexity(code)
-    return detect_python_complexity(code)
-
-
-# -------------------------
-# HTML TEMPLATE WITH POPUP
-# -------------------------
-
 TEMPLATE = """
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-    <title>Code Complexity Analyzer</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @keyframes slideUp {
-            from {
-                transform: translateY(20px);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-        
-        .modal-content {
-            animation: slideUp 0.3s ease-out;
-        }
-        
-        .complexity-badge {
-            display: inline-block;
-            padding: 0.5rem 1rem;
-            border-radius: 9999px;
-            font-weight: 600;
-            font-size: 1.125rem;
-        }
-        
-        .o1 { background: #10b981; color: white; }
-        .ologn { background: #3b82f6; color: white; }
-        .on { background: #f59e0b; color: white; }
-        .onlogn { background: #f97316; color: white; }
-        .on2 { background: #ef4444; color: white; }
-        .on3 { background: #dc2626; color: white; }
-        .exp { background: #7f1d1d; color: white; }
-        
-        .code-editor {
-            font-family: 'Courier New', monospace;
-            tab-size: 4;
-        }
-    </style>
+  <meta charset="utf-8">
+  <title>Advanced System Monitor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { 
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); 
+      color: #e6eef8; 
+      min-height: 100vh;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+    .card { 
+      background: rgba(255,255,255,0.06); 
+      border: 1px solid rgba(255,255,255,0.1);
+      backdrop-filter: blur(10px);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+    }
+    .metric { font-weight: 700; font-size: 1.4rem; color: #60a5fa; }
+    .metric-large { font-size: 2rem; }
+    canvas { background: rgba(255,255,255,0.02); border-radius: 8px; padding: 10px; }
+    .small-muted { color: #9fb0d6; font-size: .85rem; }
+    .badge-custom { 
+      background: rgba(96, 165, 250, 0.2); 
+      color: #60a5fa; 
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 8px;
+      animation: pulse 2s infinite;
+    }
+    .status-good { background: #34d399; }
+    .status-warning { background: #fbbf24; }
+    .status-critical { background: #ef4444; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .header-gradient {
+      background: linear-gradient(90deg, #60a5fa, #34d399);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .process-row {
+      background: rgba(255,255,255,0.03);
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+    }
+    .process-row:hover {
+      background: rgba(255,255,255,0.06);
+    }
+    .chart-container {
+      position: relative;
+      height: 160px;
+    }
+  </style>
 </head>
-
-<body class="bg-gradient-to-br from-slate-900 to-slate-800 min-h-screen p-6">
-    <div class="max-w-6xl mx-auto">
-        <!-- Header -->
-        <div class="text-center mb-8">
-            <h1 class="text-5xl font-bold text-white mb-2">
-                ⚡ Code Complexity Analyzer
-            </h1>
-            <p class="text-slate-300">Analyze time and space complexity like LeetCode</p>
-        </div>
-
-        <!-- Main Card -->
-        <div class="bg-slate-800 rounded-2xl shadow-2xl p-8 border border-slate-700">
-            <form id="analyzeForm" class="space-y-4">
-                <div>
-                    <label class="block text-slate-300 mb-2 font-medium">
-                        📝 Paste your code here (Python or Java)
-                    </label>
-                    <textarea 
-                        id="codeInput" 
-                        name="code" 
-                        rows="18"
-                        class="w-full p-4 rounded-xl bg-slate-900 text-slate-100 border border-slate-600 
-                               focus:ring-2 focus:ring-purple-500 focus:border-transparent code-editor
-                               placeholder-slate-500"
-                        placeholder="def example(n):
-    total = 0
-    for i in range(n):
-        for j in range(n):
-            total += i * j
-    return total"
-                        required></textarea>
-                </div>
-
-                <button 
-                    type="submit"
-                    class="w-full px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 
-                           text-white font-bold rounded-xl shadow-lg 
-                           hover:from-purple-700 hover:to-pink-700 
-                           transform hover:scale-105 transition-all duration-200">
-                    🔍 Analyze Complexity
-                </button>
-            </form>
-        </div>
-
-        <!-- Footer -->
-        <div class="text-center mt-8 text-slate-400 text-sm">
-            <p>Supporting Python and Java • AST-based Analysis</p>
-        </div>
+<body>
+<div class="container-fluid py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2 class="header-gradient mb-1">Advanced System Monitor</h2>
+      <div class="small-muted">
+        <span id="status-indicator" class="status-dot status-good"></span>
+        Monitoring active · Updated: <span id="last-update">-</span>
+      </div>
     </div>
-
-    <!-- Modal Popup -->
-    <div id="resultModal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-        <div class="modal-content bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full border-2 border-purple-500">
-            <!-- Modal Header -->
-            <div class="bg-gradient-to-r from-purple-600 to-pink-600 p-6 rounded-t-2xl">
-                <div class="flex justify-between items-center">
-                    <h2 class="text-2xl font-bold text-white">📊 Complexity Analysis</h2>
-                    <button onclick="closeModal()" class="text-white hover:text-gray-200 text-3xl font-bold">
-                        ×
-                    </button>
-                </div>
-            </div>
-
-            <!-- Modal Body -->
-            <div class="p-8 space-y-6">
-                <!-- Time Complexity -->
-                <div class="bg-slate-900 rounded-xl p-6 border border-slate-700">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg font-semibold text-slate-300">⏱️ Time Complexity</h3>
-                        <span id="timeBadge" class="complexity-badge">O(n)</span>
-                    </div>
-                    <p id="timeReason" class="text-slate-400"></p>
-                </div>
-
-                <!-- Space Complexity -->
-                <div class="bg-slate-900 rounded-xl p-6 border border-slate-700">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg font-semibold text-slate-300">💾 Space Complexity</h3>
-                        <span id="spaceBadge" class="complexity-badge">O(1)</span>
-                    </div>
-                    <p id="spaceReason" class="text-slate-400"></p>
-                </div>
-
-                <!-- Details -->
-                <div id="detailsSection" class="bg-slate-900 rounded-xl p-6 border border-slate-700">
-                    <h3 class="text-lg font-semibold text-slate-300 mb-3">🔍 Analysis Details</h3>
-                    <ul id="detailsList" class="space-y-2 text-slate-400">
-                    </ul>
-                </div>
-            </div>
-
-            <!-- Modal Footer -->
-            <div class="bg-slate-900 p-6 rounded-b-2xl border-t border-slate-700">
-                <button 
-                    onclick="closeModal()"
-                    class="w-full px-6 py-3 bg-purple-600 text-white font-semibold rounded-xl 
-                           hover:bg-purple-700 transition-colors">
-                    Got it!
-                </button>
-            </div>
-        </div>
+    <div class="text-end">
+      <div class="small-muted">System Uptime</div>
+      <div class="metric" id="uptime">--</div>
     </div>
+  </div>
 
-    <script>
-        const form = document.getElementById('analyzeForm');
-        const modal = document.getElementById('resultModal');
+  <!-- System Overview Cards -->
+  <div class="row g-3 mb-3">
+    <div class="col-lg-3 col-md-6">
+      <div class="card p-3 text-center">
+        <div class="small-muted">CPU Usage</div>
+        <div id="cpu-text" class="metric metric-large">--%</div>
+        <div class="small-muted">
+          <span id="cpu-cores">-- cores</span> · 
+          <span id="cpu-freq">-- GHz</span>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+      <div class="card p-3 text-center">
+        <div class="small-muted">Memory Usage</div>
+        <div id="mem-text" class="metric metric-large">--%</div>
+        <div class="small-muted" id="mem-details">-- / --</div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+      <div class="card p-3 text-center">
+        <div class="small-muted">Disk Usage</div>
+        <div id="disk-text" class="metric metric-large">--%</div>
+        <div class="small-muted" id="disk-details">-- / --</div>
+      </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+      <div class="card p-3 text-center">
+        <div class="small-muted">Network</div>
+        <div class="metric" style="font-size: 1rem;">
+          <div>↓ <span id="net-down" style="color: #34d399;">--</span></div>
+          <div>↑ <span id="net-up" style="color: #60a5fa;">--</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const code = document.getElementById('codeInput').value;
-            
-            try {
-                const response = await fetch('/analyze', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ code: code })
-                });
-                
-                const result = await response.json();
-                displayResults(result);
-            } catch (error) {
-                alert('Error analyzing code: ' + error.message);
-            }
-        });
+  <!-- Charts Row -->
+  <div class="row g-3 mb-3">
+    <div class="col-lg-4">
+      <div class="card p-3">
+        <div class="small-muted mb-2">CPU History (60s)</div>
+        <div class="chart-container">
+          <canvas id="cpuChart"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card p-3">
+        <div class="small-muted mb-2">Memory History (60s)</div>
+        <div class="chart-container">
+          <canvas id="memChart"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card p-3">
+        <div class="small-muted mb-2">Network Activity (60s)</div>
+        <div class="chart-container">
+          <canvas id="netChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
 
-        function displayResults(result) {
-            // Set time complexity
-            const timeBadge = document.getElementById('timeBadge');
-            timeBadge.textContent = result.time;
-            timeBadge.className = 'complexity-badge ' + getComplexityClass(result.time);
-            document.getElementById('timeReason').textContent = result.reason;
+  <!-- Per-core and Temperature -->
+  <div class="row g-3 mb-3">
+    <div class="col-lg-6">
+      <div class="card p-3">
+        <div class="small-muted mb-2">Per-Core CPU Usage</div>
+        <div id="percore-container"></div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card p-3">
+        <div class="small-muted mb-2">System Information</div>
+        <div class="row g-2 mt-1">
+          <div class="col-6">
+            <span class="badge-custom">Platform</span>
+            <div id="platform" class="mt-1">--</div>
+          </div>
+          <div class="col-6">
+            <span class="badge-custom">Boot Time</span>
+            <div id="boot-time" class="mt-1">--</div>
+          </div>
+          <div class="col-6 mt-2">
+            <span class="badge-custom">Processes</span>
+            <div id="proc-count" class="mt-1">--</div>
+          </div>
+          <div class="col-6 mt-2">
+            <span class="badge-custom">Temperature</span>
+            <div id="temp" class="mt-1">--</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-            // Set space complexity
-            const spaceBadge = document.getElementById('spaceBadge');
-            spaceBadge.textContent = result.space;
-            spaceBadge.className = 'complexity-badge ' + getComplexityClass(result.space);
-            document.getElementById('spaceReason').textContent = result.space_reason;
+  <!-- Top Processes -->
+  <div class="row g-3">
+    <div class="col-12">
+      <div class="card p-3">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="small-muted">Top Processes by CPU</div>
+          <span class="badge-custom" id="proc-badge">Refreshing...</span>
+        </div>
+        <div id="processes"></div>
+      </div>
+    </div>
+  </div>
 
-            // Set details
-            const detailsList = document.getElementById('detailsList');
-            detailsList.innerHTML = '';
-            
-            if (result.details && result.details.length > 0) {
-                result.details.forEach(detail => {
-                    const li = document.createElement('li');
-                    li.textContent = '• ' + detail;
-                    detailsList.appendChild(li);
-                });
-            } else {
-                detailsList.innerHTML = '<li>• No additional details</li>';
-            }
+  <footer class="mt-4 text-center small-muted pb-3">
+    Real-time monitoring with 1-second refresh interval
+  </footer>
+</div>
 
-            // Show modal
-            modal.classList.remove('hidden');
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const SAMPLE_COUNT = 60;
+let lastNetRx = 0, lastNetTx = 0;
+
+const chartConfig = {
+  animation: false,
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: { mode: 'index', intersect: false }
+  }
+};
+
+function makeLineChart(ctx, label, color, showY = true) {
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: Array(SAMPLE_COUNT).fill(''),
+      datasets: [{
+        label: label,
+        data: Array(SAMPLE_COUNT).fill(null),
+        tension: 0.3,
+        fill: true,
+        backgroundColor: color + '33',
+        borderColor: color,
+        borderWidth: 2,
+        pointRadius: 0,
+      }]
+    },
+    options: {
+      ...chartConfig,
+      scales: {
+        y: { 
+          display: showY,
+          min: 0, 
+          max: 100, 
+          ticks: { color: '#9fb0d6', callback: v => v + '%' },
+          grid: { color: 'rgba(255,255,255,0.05)' }
+        },
+        x: { display: false }
+      }
+    }
+  });
+}
+
+function makeNetChart(ctx) {
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: Array(SAMPLE_COUNT).fill(''),
+      datasets: [
+        {
+          label: 'Download',
+          data: Array(SAMPLE_COUNT).fill(null),
+          tension: 0.3,
+          fill: true,
+          backgroundColor: '#34d39933',
+          borderColor: '#34d399',
+          borderWidth: 2,
+          pointRadius: 0,
+        },
+        {
+          label: 'Upload',
+          data: Array(SAMPLE_COUNT).fill(null),
+          tension: 0.3,
+          fill: true,
+          backgroundColor: '#60a5fa33',
+          borderColor: '#60a5fa',
+          borderWidth: 2,
+          pointRadius: 0,
         }
+      ]
+    },
+    options: {
+      ...chartConfig,
+      scales: {
+        y: { 
+          display: true,
+          min: 0,
+          ticks: { color: '#9fb0d6', callback: v => v.toFixed(1) + ' MB/s' },
+          grid: { color: 'rgba(255,255,255,0.05)' }
+        },
+        x: { display: false }
+      },
+      plugins: {
+        legend: { display: true, position: 'top', labels: { color: '#dbeafe' } },
+        tooltip: { mode: 'index', intersect: false }
+      }
+    }
+  });
+}
 
-        function getComplexityClass(complexity) {
-            const c = complexity.toLowerCase().replace(/\s/g, '');
-            if (c.includes('o(1)')) return 'o1';
-            if (c.includes('o(logn)')) return 'ologn';
-            if (c.includes('o(nlogn)')) return 'onlogn';
-            if (c.includes('o(n²)') || c.includes('o(n^2)')) return 'on2';
-            if (c.includes('o(n³)') || c.includes('o(n^3)')) return 'on3';
-            if (c.includes('o(2') || c.includes('exp')) return 'exp';
-            if (c.includes('o(n)')) return 'on';
-            return 'on';
-        }
+const cpuChart = makeLineChart(document.getElementById('cpuChart').getContext('2d'), 'CPU %', '#60a5fa');
+const memChart = makeLineChart(document.getElementById('memChart').getContext('2d'), 'Memory %', '#34d399');
+const netChart = makeNetChart(document.getElementById('netChart').getContext('2d'));
 
-        function closeModal() {
-            modal.classList.add('hidden');
-        }
+function pushData(chart, value, datasetIndex = 0) {
+  chart.data.datasets[datasetIndex].data.push(value);
+  if (chart.data.datasets[datasetIndex].data.length > SAMPLE_COUNT) {
+    chart.data.datasets[datasetIndex].data.shift();
+  }
+  const now = new Date().toLocaleTimeString();
+  if (datasetIndex === 0) {
+    chart.data.labels.push(now);
+    if (chart.data.labels.length > SAMPLE_COUNT) chart.data.labels.shift();
+  }
+  chart.update('none');
+}
 
-        // Close modal on outside click
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                closeModal();
-            }
-        });
+function updateStatusIndicator(cpu, mem) {
+  const indicator = document.getElementById('status-indicator');
+  if (cpu > 80 || mem > 90) {
+    indicator.className = 'status-dot status-critical';
+  } else if (cpu > 60 || mem > 75) {
+    indicator.className = 'status-dot status-warning';
+  } else {
+    indicator.className = 'status-dot status-good';
+  }
+}
 
-        // Close modal on Escape key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                closeModal();
-            }
-        });
-    </script>
+async function fetchAndUpdate() {
+  try {
+    const res = await fetch('/metrics');
+    const json = await res.json();
+    
+    document.getElementById('last-update').innerText = json.timestamp;
+    document.getElementById('uptime').innerText = json.uptime;
+
+    // CPU
+    const cpu = json.cpu.percent;
+    document.getElementById('cpu-text').innerText = cpu.toFixed(1) + '%';
+    document.getElementById('cpu-cores').innerText = json.cpu.cores + ' cores';
+    document.getElementById('cpu-freq').innerText = json.cpu.freq;
+    pushData(cpuChart, cpu);
+
+    // Per-core visualization
+    const percoreHtml = json.cpu.percore.map((p, i) => {
+      const width = p;
+      const color = p > 80 ? '#ef4444' : p > 60 ? '#fbbf24' : '#34d399';
+      return `
+        <div class="d-flex align-items-center mb-2">
+          <div style="width: 60px;" class="small-muted">Core ${i}</div>
+          <div style="flex: 1; background: rgba(255,255,255,0.1); height: 20px; border-radius: 4px; overflow: hidden;">
+            <div style="width: ${width}%; height: 100%; background: ${color}; transition: width 0.3s;"></div>
+          </div>
+          <div style="width: 50px; text-align: right;" class="small-muted">${p.toFixed(1)}%</div>
+        </div>
+      `;
+    }).join('');
+    document.getElementById('percore-container').innerHTML = percoreHtml;
+
+    // Memory
+    const mem = json.mem.percent;
+    document.getElementById('mem-text').innerText = mem.toFixed(1) + '%';
+    document.getElementById('mem-details').innerText = `${json.mem.used_human} / ${json.mem.total_human}`;
+    pushData(memChart, mem);
+
+    // Disk
+    document.getElementById('disk-text').innerText = json.disk.percent.toFixed(1) + '%';
+    document.getElementById('disk-details').innerText = `${json.disk.used_human} / ${json.disk.total_human}`;
+
+    // Network
+    const netRx = json.network.bytes_recv;
+    const netTx = json.network.bytes_sent;
+    
+    if (lastNetRx > 0) {
+      const rxRate = ((netRx - lastNetRx) / 1024 / 1024).toFixed(2);
+      const txRate = ((netTx - lastNetTx) / 1024 / 1024).toFixed(2);
+      document.getElementById('net-down').innerText = rxRate + ' MB/s';
+      document.getElementById('net-up').innerText = txRate + ' MB/s';
+      pushData(netChart, parseFloat(rxRate), 0);
+      pushData(netChart, parseFloat(txRate), 1);
+    }
+    lastNetRx = netRx;
+    lastNetTx = netTx;
+
+    // System info
+    document.getElementById('platform').innerText = json.system.platform;
+    document.getElementById('boot-time').innerText = json.system.boot_time;
+    document.getElementById('proc-count').innerText = json.system.process_count;
+    document.getElementById('temp').innerText = json.system.temperature;
+
+    // Top processes
+    const procsHtml = json.processes.map((p, i) => `
+      <div class="process-row">
+        <div class="d-flex justify-content-between">
+          <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            <strong>${p.name}</strong> <span class="small-muted">(PID: ${p.pid})</span>
+          </div>
+          <div>
+            <span class="badge-custom">${p.cpu}%</span>
+            <span class="badge-custom ms-1">${p.memory}</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+    document.getElementById('processes').innerHTML = procsHtml;
+    document.getElementById('proc-badge').innerText = `Top ${json.processes.length} Processes`;
+
+    updateStatusIndicator(cpu, mem);
+
+  } catch (err) {
+    console.error('Fetch error:', err);
+    document.getElementById('status-indicator').className = 'status-dot status-critical';
+  }
+}
+
+// Initialize
+(function init() {
+  const now = new Date();
+  for (let i = 0; i < SAMPLE_COUNT; i++) {
+    const t = new Date(now - (SAMPLE_COUNT - i) * 1000).toLocaleTimeString();
+    cpuChart.data.labels[i] = t;
+    memChart.data.labels[i] = t;
+    netChart.data.labels[i] = t;
+  }
+  cpuChart.update();
+  memChart.update();
+  netChart.update();
+})();
+
+fetchAndUpdate();
+setInterval(fetchAndUpdate, 1000);
+</script>
 </body>
 </html>
 """
 
-# -------------------------
-# ROUTES
-# -------------------------
+def bytes2human(n):
+    """Convert bytes to human-readable form"""
+    symbols = ('B', 'KB', 'MB', 'GB', 'TB', 'PB')
+    prefix = {}
+    for i, s in enumerate(symbols):
+        prefix[s] = 1 << (i * 10)
+    for s in reversed(symbols):
+        if n >= prefix[s]:
+            value = float(n) / prefix[s]
+            return f"{value:.2f} {s}"
+    return f"{n} B"
+
+def get_uptime():
+    """Get system uptime"""
+    boot_time = datetime.fromtimestamp(psutil.boot_time())
+    uptime = datetime.now() - boot_time
+    days = uptime.days
+    hours, remainder = divmod(uptime.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if days > 0:
+        return f"{days}d {hours}h {minutes}m"
+    elif hours > 0:
+        return f"{hours}h {minutes}m"
+    else:
+        return f"{minutes}m {seconds}s"
+
+def get_cpu_temp():
+    """Get CPU temperature if available"""
+    try:
+        temps = psutil.sensors_temperatures()
+        if temps:
+            for name, entries in temps.items():
+                for entry in entries:
+                    if 'core' in entry.label.lower() or 'cpu' in name.lower():
+                        return f"{entry.current:.1f}°C"
+            # Return first available temp if no CPU-specific found
+            for name, entries in temps.items():
+                if entries:
+                    return f"{entries[0].current:.1f}°C"
+        return "N/A"
+    except:
+        return "N/A"
 
 @app.route("/")
-def home():
+def index():
     return render_template_string(TEMPLATE)
 
+@app.route("/metrics")
+def metrics():
+    # CPU
+    cpu_percent = psutil.cpu_percent(interval=None)
+    per_core = psutil.cpu_percent(interval=None, percpu=True)
+    cores = psutil.cpu_count(logical=True)
+    try:
+        cpu_freq = psutil.cpu_freq()
+        freq_str = f"{cpu_freq.current / 1000:.2f} GHz" if cpu_freq else "N/A"
+    except:
+        freq_str = "N/A"
 
-@app.route("/analyze", methods=["POST"])
-def analyze():
-    data = request.get_json()
-    code = data.get("code", "")
-    
-    if not code:
-        return jsonify({"error": "No code provided"}), 400
-    
-    result = analyze_code(code)
-    return jsonify(result)
+    # Memory
+    vm = psutil.virtual_memory()
 
+    # Disk
+    try:
+        disk = psutil.disk_usage('/')
+    except:
+        partitions = psutil.disk_partitions(all=False)
+        path = partitions[0].mountpoint if partitions else '/'
+        disk = psutil.disk_usage(path)
+
+    # Network
+    net_io = psutil.net_io_counters()
+
+    # System info
+    boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M")
+    
+    # Top processes by CPU
+    processes = []
+    for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_info']):
+        try:
+            pinfo = proc.info
+            processes.append({
+                'pid': pinfo['pid'],
+                'name': pinfo['name'][:30],
+                'cpu': pinfo['cpu_percent'] or 0,
+                'memory': bytes2human(pinfo['memory_info'].rss) if pinfo['memory_info'] else '0 B'
+            })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    
+    # Sort by CPU and get top 8
+    processes.sort(key=lambda x: x['cpu'], reverse=True)
+    top_processes = processes[:8]
+
+    resp = {
+        "timestamp": datetime.now().strftime("%H:%M:%S"),
+        "uptime": get_uptime(),
+        "cpu": {
+            "percent": cpu_percent,
+            "percore": per_core,
+            "cores": cores,
+            "freq": freq_str
+        },
+        "mem": {
+            "total": vm.total,
+            "used": vm.used,
+            "percent": vm.percent,
+            "used_human": bytes2human(vm.used),
+            "total_human": bytes2human(vm.total)
+        },
+        "disk": {
+            "total": disk.total,
+            "used": disk.used,
+            "percent": disk.percent,
+            "used_human": bytes2human(disk.used),
+            "total_human": bytes2human(disk.total)
+        },
+        "network": {
+            "bytes_sent": net_io.bytes_sent,
+            "bytes_recv": net_io.bytes_recv,
+        },
+        "system": {
+            "platform": psutil.os.name.upper(),
+            "boot_time": boot_time,
+            "process_count": len(psutil.pids()),
+            "temperature": get_cpu_temp()
+        },
+        "processes": top_processes
+    }
+    return jsonify(resp)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
