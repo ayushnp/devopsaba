@@ -1,5 +1,13 @@
-FROM python:3.10
+FROM python:3.10-slim
+
 WORKDIR /app
+
+# Install dependencies first (better caching)
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy only required files
 COPY . .
-RUN pip install -r requirements.txt
+
 CMD ["python", "app.py"]
