@@ -67,4 +67,13 @@ pipeline {
             echo "Pipeline Failed!"
         }
     }
+    
+    post {
+    success {
+        slackSend(channel: '#ci-cd-pipeline', message: 'Build Success!')
+    }
+    failure {
+        slackSend(channel: '#ci-cd-pipeline', message: 'Build Failed!')
+    }
+}
 }
