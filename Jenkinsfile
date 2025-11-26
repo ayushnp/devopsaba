@@ -62,11 +62,64 @@ pipeline {
     post {
         success {
             echo "CI/CD Pipeline Completed Successfully!"
-            slackSend(channel: '#ci-cd-pipeline', message: 'Build Success!')
+
+            slackSend(
+                webhookUrl: credentials('slack-webhook'),
+                channel: '#ci-cd-pipeline',
+                message: "Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+
+            emailext(
+                to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com","lohithbandla5@gmail.com","bhargavisriinivas@gmail.com",
+                subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+Hello Team,
+
+The CI/CD pipeline completed successfully.
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Status: SUCCESS
+
+View build details:
+${env.BUILD_URL}
+
+Regards,
+Jenkins
+""",
+                attachLog: true
+            )
         }
+
         failure {
             echo "Pipeline Failed!"
-            slackSend(channel: '#ci-cd-pipeline', message: 'Build Failed!')
+
+            slackSend(
+                webhookUrl: credentials('slack-webhook'),
+                channel: '#ci-cd-pipeline',
+                message: "Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+
+            emailext(
+                to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com","lohithbandla5@gmail.com","bhargavisriinivas@gmail.com",
+                subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+Hello Team,
+
+The CI/CD pipeline has FAILED.
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Status: FAILURE
+
+Check console output:
+${env.BUILD_URL}console
+
+Regards,
+Jenkins
+""",
+                attachLog: true
+            )
         }
     }
 }
