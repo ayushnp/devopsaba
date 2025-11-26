@@ -6,7 +6,7 @@ pipeline {
         IMAGE = "ayushnp10/devopsaba:latest"
         IMAGE_VERSION = "ayushnp10/devopsaba:${BUILD_NUMBER}"
 
-        // FIXED (Issue 2): Store rollback file inside workspace (works with Jenkins)
+        // Rollback file stored in workspace
         LAST_SUCCESS_FILE = "last_success_image.txt"
     }
 
@@ -18,6 +18,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------  
+           SECRET LEAK SCAN
+        ------------------------------- */
         stage('Secret Scan (Gitleaks)') {
             steps {
                 bat """
@@ -31,6 +34,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------  
+           FILESYSTEM VULNERABILITY SCAN
+        ------------------------------- */
         stage('Code Vulnerability Scan (Trivy FS)') {
             steps {
                 bat """
@@ -43,6 +49,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------  
+           DOCKER BUILD
+        ------------------------------- */
         stage('Build Docker Image') {
             steps {
                 bat """
@@ -52,6 +61,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------  
+           IMAGE VULNERABILITY SCAN
+        ------------------------------- */
         stage('Image Vulnerability Scan (Trivy Image)') {
             steps {
                 bat """
@@ -62,6 +74,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------  
+           DOCKER LOGIN
+        ------------------------------- */
         stage('Login to Docker Hub') {
             steps {
                 withCredentials([usernamePassword(
@@ -76,6 +91,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------  
+           PUSH IMAGE
+        ------------------------------- */
         stage('Push Image to Docker Hub') {
             steps {
                 bat """
@@ -85,6 +103,9 @@ pipeline {
             }
         }
 
+        /* -------------------------------  
+           DEPLOY NEW CONTAINER
+        ------------------------------- */
         stage('Deploy Container') {
             steps {
                 bat """
@@ -96,7 +117,7 @@ pipeline {
         }
 
         /* ------------------------------------------------
-           AUTO ROLLBACK (Issue 3 FIXED)
+           VERIFY DEPLOYMENT + AUTO ROLLBACK
         ------------------------------------------------ */
         stage('Verify Deployment & Auto Rollback') {
             steps {
@@ -105,14 +126,21 @@ pipeline {
                     echo "Checking if new container is running..."
 
                     def running = bat(
-                        script: 'docker inspect -f "{{.State.Running}}" devopsaba',
+                        script: 'docker inspect -f "{{.State.Running}}" devopsaba 2>NUL',
                         returnStdout: true
                     ).trim()
 
-                    // FIXED (Issue 3): normalize for Windows output
-                    running = running.toLowerCase().trim().replace('"', '').replace("\r", "").replace("\n", "")
+                    running = running
+                        .toLowerCase()
+                        .replace('"', '')
+                        .replace("\r", "")
+                        .replace("\n", "")
+                        .trim()
 
-                    if (running != "true") {
+                    echo "Docker returned: '${running}'"
+
+                    // *** FINAL FIX: Windows-safe check ***
+                    if (!running.contains("true")) {
 
                         echo "❌ Deployment FAILED — Attempting rollback..."
 
@@ -132,7 +160,8 @@ pipeline {
                         """
 
                         error("Deployment failed. Rollback executed.")
-                    } else {
+                    } 
+                    else {
                         echo "✔ Deployment successful — saving stable version"
                         writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
                     }
@@ -141,6 +170,9 @@ pipeline {
         }
     }
 
+    /* -------------------------------
+       NOTIFICATIONS
+    ------------------------------- */
     post {
 
         success {
