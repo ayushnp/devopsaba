@@ -104,40 +104,49 @@ pipeline {
            AUTO ROLLBACK ON DEPLOYMENT FAILURE
         ------------------------------------------- */
         stage('Verify Deployment & Auto Rollback') {
-            steps {
-                script {
-                    echo "Checking if new container is running..."
+    steps {
+        script {
+            echo "Checking if new container is running..."
 
-                    def running = bat(
-                        script: 'docker inspect -f "{{.State.Running}}" devopsaba',
-                        returnStdout: true
-                    ).trim()
+            def running = bat(
+                script: 'docker inspect -f "{{.State.Running}}" devopsaba',
+                returnStdout: true
+            ).trim()
 
-                    if (running != "true") {
-                        echo "❌ Deployment FAILED — Rolling back..."
+            if (running != "true") {
+                echo "❌ Deployment FAILED — Attempting rollback..."
 
-                        // Stop failed container
-                        bat 'docker stop devopsaba || echo No container'
-                        bat 'docker rm devopsaba || echo No container'
+                // Stop failed container
+                bat 'docker stop devopsaba || echo No container'
+                bat 'docker rm devopsaba || echo No container'
 
-                        // Read last successful image
-                        def lastImage = readFile(env.LAST_SUCCESS_FILE).trim()
+                // Check if rollback file exists
+                def rollbackFileExists = fileExists(env.LAST_SUCCESS_FILE)
 
-                        echo "Rolling back to previous stable image: ${lastImage}"
-
-                        // Start last stable container
-                        bat """
-                            docker run -d -p 5000:5000 --name devopsaba ${lastImage}
-                        """
-
-                        error("Deployment failed. Rollback executed.")
-                    } else {
-                        echo "✔ Deployment successful. Saving this version as last stable."
-                        writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
-                    }
+                if (!rollbackFileExists) {
+                    echo "⚠ No previous stable image found. Cannot rollback."
+                    error("Deployment failed and no rollback image exists.")
                 }
+
+                // Read last successful image
+                def lastImage = readFile(env.LAST_SUCCESS_FILE).trim()
+                echo "Rolling back to previous stable image: ${lastImage}"
+
+                // Start last stable container
+                bat """
+                    docker run -d -p 5000:5000 --name devopsaba ${lastImage}
+                """
+
+                error("Deployment failed. Rollback executed.")
+            } 
+            else {
+                echo "✔ Deployment successful. Saving stable image."
+                writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
             }
         }
+    }
+}
+
     }
 
     post {
