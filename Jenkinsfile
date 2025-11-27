@@ -6,17 +6,15 @@ pipeline {
         IMAGE = "ayushnp10/devopsaba:latest"
         IMAGE_VERSION = "ayushnp10/devopsaba:${BUILD_NUMBER}"
 
-        // Rollback file for production builds
         LAST_SUCCESS_FILE = "last_success_image.txt"
 
-        // For PR builds
         IS_PR = "false"
     }
 
     stages {
 
         /* --------------------------------------------------------
-           STAGE 1 — Detect if this is a Pull Request build
+           STAGE 1 — Detect PR Build
         -------------------------------------------------------- */
         stage('Determine Build Type') {
             steps {
@@ -39,13 +37,14 @@ pipeline {
             }
         }
 
+        /* -------------------------------------------------------- */
         stage('Checkout Code') {
             steps {
-                git branch: 'main', url: 'https://github.com/ayushnp/devopsaba.git'
+                checkout scm
             }
         }
 
-        /* -------------------------------------------- */
+        /* -------------------------------------------------------- */
         stage('Secret Scan (Gitleaks)') {
             steps {
                 bat """
@@ -59,7 +58,7 @@ pipeline {
             }
         }
 
-        /* -------------------------------------------- */
+        /* -------------------------------------------------------- */
         stage('Code Vulnerability Scan (Trivy FS)') {
             steps {
                 bat """
@@ -67,12 +66,14 @@ pipeline {
                         -v %CD%:/repo ^
                         aquasec/trivy:latest fs /repo ^
                         --severity HIGH,CRITICAL ^
-                        --exit-code 1
+                        --exit-code 1 ^
+                        --light ^
+                        --skip-db-update
                 """
             }
         }
 
-        /* -------------------------------------------- */
+        /* -------------------------------------------------------- */
         stage('Build Docker Image') {
             steps {
                 bat """
@@ -83,7 +84,7 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           STAGE — Deploy PR Environment (ONLY for PR builds)
+           PR: Deploy Temporary Environment
         -------------------------------------------------------- */
         stage('Deploy PR Environment') {
             when { expression { env.IS_PR == "true" } }
@@ -96,21 +97,22 @@ pipeline {
                 """
 
                 echo "🌐 Preview URL: http://YOUR_PUBLIC_IP:${env.PR_PORT}/"
-                echo "💡 This is a temporary environment for PR testing."
+                echo "💡 This environment will be deleted when PR is closed."
             }
         }
 
         /* --------------------------------------------------------
-           The following stages run ONLY for MAIN branch builds
+           MAIN BRANCH ONLY
         -------------------------------------------------------- */
-
         stage('Image Vulnerability Scan (Trivy Image)') {
             when { expression { env.IS_PR == "false" } }
             steps {
                 bat """
                     docker run --rm aquasec/trivy:latest image %IMAGE% ^
                         --severity HIGH,CRITICAL ^
-                        --exit-code 1
+                        --exit-code 1 ^
+                        --light ^
+                        --skip-db-update
                 """
             }
         }
@@ -144,21 +146,18 @@ pipeline {
                 bat """
                     docker stop devopsaba || echo No container
                     docker rm devopsaba || echo No container
-
                     docker run -d -p 5000:5000 --name devopsaba %IMAGE%
                 """
             }
         }
 
         /* --------------------------------------------------------
-           AUTO-ROLLBACK — only for MAIN branch
+           AUTO-ROLLBACK
         -------------------------------------------------------- */
         stage('Verify Deployment & Auto Rollback') {
             when { expression { env.IS_PR == "false" } }
             steps {
                 script {
-
-                    echo "Checking if new container is running..."
 
                     def running = bat(
                         script: 'docker inspect -f "{{.State.Running}}" devopsaba 2>NUL',
@@ -166,14 +165,13 @@ pipeline {
                     ).trim().toLowerCase().replace('"','')
 
                     if (!running.contains("true")) {
-
-                        echo "❌ Deployment FAILED — Attempting rollback..."
+                        echo "❌ Deployment Failure — Rolling Back..."
 
                         bat 'docker stop devopsaba || echo No container'
                         bat 'docker rm devopsaba || echo No container'
 
                         if (!fileExists(env.LAST_SUCCESS_FILE)) {
-                            error("⚠ No previous stable image found — cannot rollback.")
+                            error("⚠ No previous stable image to rollback to.")
                         }
 
                         def lastImage = readFile(env.LAST_SUCCESS_FILE).trim()
@@ -182,26 +180,25 @@ pipeline {
                             docker run -d -p 5000:5000 --name devopsaba ${lastImage}
                         """
 
-                        error("Deployment failed — rollback executed.")
-                    } else {
-                        echo "✔ Deployment successful — saving stable version"
-                        writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
+                        error("Rollback executed because deployment failed.")
                     }
+
+                    echo "✔ Deployment OK — Saving stable version"
+                    writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
                 }
             }
         }
     }
 
     /* --------------------------------------------------------
-       CLEANUP FOR PR BUILDS AFTER MERGE / CLOSURE
+       POST ACTIONS
     -------------------------------------------------------- */
     post {
 
         always {
             script {
                 if (env.IS_PR == "true") {
-                    echo "🧹 Cleaning up PR environment (if merged/closed)..."
-
+                    echo "🧹 Cleaning PR Environment..."
                     bat "docker stop ${env.PR_CONTAINER} || echo Not running"
                     bat "docker rm ${env.PR_CONTAINER} || echo Already removed"
                 }
