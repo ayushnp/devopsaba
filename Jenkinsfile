@@ -6,11 +6,38 @@ pipeline {
         IMAGE = "ayushnp10/devopsaba:latest"
         IMAGE_VERSION = "ayushnp10/devopsaba:${BUILD_NUMBER}"
 
-        // Rollback file stored in workspace
+        // Rollback file for production builds
         LAST_SUCCESS_FILE = "last_success_image.txt"
+
+        // For PR builds
+        IS_PR = "false"
     }
 
     stages {
+
+        /* --------------------------------------------------------
+           STAGE 1 — Detect if this is a Pull Request build
+        -------------------------------------------------------- */
+        stage('Determine Build Type') {
+            steps {
+                script {
+                    if (env.CHANGE_ID) {
+                        env.IS_PR = "true"
+                        env.PR_ID = env.CHANGE_ID
+                        env.PR_CONTAINER = "devopsaba-pr-${env.PR_ID}"
+                        env.PR_PORT = (5000 + env.PR_ID.toInteger()).toString()
+
+                        echo "🔵 Pull Request Build Detected"
+                        echo "PR ID       : ${env.PR_ID}"
+                        echo "PR Container: ${env.PR_CONTAINER}"
+                        echo "PR Port     : ${env.PR_PORT}"
+                    } else {
+                        env.IS_PR = "false"
+                        echo "🟢 Main Branch Build"
+                    }
+                }
+            }
+        }
 
         stage('Checkout Code') {
             steps {
@@ -18,9 +45,7 @@ pipeline {
             }
         }
 
-        /* -------------------------------  
-           SECRET LEAK SCAN
-        ------------------------------- */
+        /* -------------------------------------------- */
         stage('Secret Scan (Gitleaks)') {
             steps {
                 bat """
@@ -34,9 +59,7 @@ pipeline {
             }
         }
 
-        /* -------------------------------  
-           FILESYSTEM VULNERABILITY SCAN
-        ------------------------------- */
+        /* -------------------------------------------- */
         stage('Code Vulnerability Scan (Trivy FS)') {
             steps {
                 bat """
@@ -49,9 +72,7 @@ pipeline {
             }
         }
 
-        /* -------------------------------  
-           DOCKER BUILD
-        ------------------------------- */
+        /* -------------------------------------------- */
         stage('Build Docker Image') {
             steps {
                 bat """
@@ -61,10 +82,30 @@ pipeline {
             }
         }
 
-        /* -------------------------------  
-           IMAGE VULNERABILITY SCAN
-        ------------------------------- */
+        /* --------------------------------------------------------
+           STAGE — Deploy PR Environment (ONLY for PR builds)
+        -------------------------------------------------------- */
+        stage('Deploy PR Environment') {
+            when { expression { env.IS_PR == "true" } }
+            steps {
+                bat """
+                    docker stop ${env.PR_CONTAINER} || echo No container
+                    docker rm ${env.PR_CONTAINER} || echo No container
+
+                    docker run -d -p ${env.PR_PORT}:5000 --name ${env.PR_CONTAINER} %IMAGE_VERSION%
+                """
+
+                echo "🌐 Preview URL: http://YOUR_PUBLIC_IP:${env.PR_PORT}/"
+                echo "💡 This is a temporary environment for PR testing."
+            }
+        }
+
+        /* --------------------------------------------------------
+           The following stages run ONLY for MAIN branch builds
+        -------------------------------------------------------- */
+
         stage('Image Vulnerability Scan (Trivy Image)') {
+            when { expression { env.IS_PR == "false" } }
             steps {
                 bat """
                     docker run --rm aquasec/trivy:latest image %IMAGE% ^
@@ -74,27 +115,21 @@ pipeline {
             }
         }
 
-        /* -------------------------------  
-           DOCKER LOGIN
-        ------------------------------- */
         stage('Login to Docker Hub') {
+            when { expression { env.IS_PR == "false" } }
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'dockerhub-creds',
                     usernameVariable: 'USER',
                     passwordVariable: 'PASS'
                 )]) {
-                    bat """
-                        echo %PASS% | docker login -u %USER% --password-stdin
-                    """
+                    bat """ echo %PASS% | docker login -u %USER% --password-stdin """
                 }
             }
         }
 
-        /* -------------------------------  
-           PUSH IMAGE
-        ------------------------------- */
         stage('Push Image to Docker Hub') {
+            when { expression { env.IS_PR == "false" } }
             steps {
                 bat """
                     docker push %IMAGE_VERSION%
@@ -103,23 +138,23 @@ pipeline {
             }
         }
 
-        /* -------------------------------  
-           DEPLOY NEW CONTAINER
-        ------------------------------- */
         stage('Deploy Container') {
+            when { expression { env.IS_PR == "false" } }
             steps {
                 bat """
                     docker stop devopsaba || echo No container
                     docker rm devopsaba || echo No container
+
                     docker run -d -p 5000:5000 --name devopsaba %IMAGE%
                 """
             }
         }
 
-        /* ------------------------------------------------
-           VERIFY DEPLOYMENT + AUTO ROLLBACK
-        ------------------------------------------------ */
+        /* --------------------------------------------------------
+           AUTO-ROLLBACK — only for MAIN branch
+        -------------------------------------------------------- */
         stage('Verify Deployment & Auto Rollback') {
+            when { expression { env.IS_PR == "false" } }
             steps {
                 script {
 
@@ -128,18 +163,8 @@ pipeline {
                     def running = bat(
                         script: 'docker inspect -f "{{.State.Running}}" devopsaba 2>NUL',
                         returnStdout: true
-                    ).trim()
+                    ).trim().toLowerCase().replace('"','')
 
-                    running = running
-                        .toLowerCase()
-                        .replace('"', '')
-                        .replace("\r", "")
-                        .replace("\n", "")
-                        .trim()
-
-                    echo "Docker returned: '${running}'"
-
-                    // *** FINAL FIX: Windows-safe check ***
                     if (!running.contains("true")) {
 
                         echo "❌ Deployment FAILED — Attempting rollback..."
@@ -148,20 +173,17 @@ pipeline {
                         bat 'docker rm devopsaba || echo No container'
 
                         if (!fileExists(env.LAST_SUCCESS_FILE)) {
-                            echo "⚠ No previous stable image found. Cannot rollback."
-                            error("Deployment failed and no rollback image exists.")
+                            error("⚠ No previous stable image found — cannot rollback.")
                         }
 
                         def lastImage = readFile(env.LAST_SUCCESS_FILE).trim()
-                        echo "Rolling back to: ${lastImage}"
 
                         bat """
                             docker run -d -p 5000:5000 --name devopsaba ${lastImage}
                         """
 
-                        error("Deployment failed. Rollback executed.")
-                    } 
-                    else {
+                        error("Deployment failed — rollback executed.")
+                    } else {
                         echo "✔ Deployment successful — saving stable version"
                         writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
                     }
@@ -170,42 +192,35 @@ pipeline {
         }
     }
 
-    /* -------------------------------
-       NOTIFICATIONS
-    ------------------------------- */
+    /* --------------------------------------------------------
+       CLEANUP FOR PR BUILDS AFTER MERGE / CLOSURE
+    -------------------------------------------------------- */
     post {
 
-        success {
-            echo "CI/CD Pipeline Completed Successfully!"
+        always {
+            script {
+                if (env.IS_PR == "true") {
+                    echo "🧹 Cleaning up PR environment (if merged/closed)..."
 
+                    bat "docker stop ${env.PR_CONTAINER} || echo Not running"
+                    bat "docker rm ${env.PR_CONTAINER} || echo Already removed"
+                }
+            }
+        }
+
+        success {
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
                 message: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
-
-            emailext(
-                to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com, lohithbandla5@gmail.com, bhargavisriinivas@gmail.com",
-                subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: "Pipeline completed successfully.",
-                attachLog: true
-            )
         }
 
         failure {
-            echo "Pipeline Failed!"
-
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
                 message: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-            )
-
-            emailext(
-                to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com, lohithbandla5@gmail.com, bhargavisriinivas@gmail.com",
-                subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: "The pipeline FAILED. Check logs.",
-                attachLog: true
             )
         }
     }
