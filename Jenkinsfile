@@ -74,7 +74,7 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           DOCKER LOGIN
+           DOCKER HUB LOGIN
         -------------------------------------------------------- */
         stage('DockerHub Login') {
             steps {
@@ -114,7 +114,7 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           AUTO-ROLLBACK
+           AUTO-ROLLBACK SYSTEM
         -------------------------------------------------------- */
         stage('Verify & Auto Rollback') {
             steps {
@@ -132,14 +132,14 @@ pipeline {
                         bat "docker rm devopsaba || echo No container"
 
                         if (!fileExists(env.LAST_SUCCESS_FILE)) {
-                            error("❗ No previous stable image exists to rollback.")
+                            error("❗ No previous stable image exists for rollback.")
                         }
 
                         def last = readFile(env.LAST_SUCCESS_FILE).trim()
 
                         bat "docker run -d -p 5000:5000 --name devopsaba ${last}"
 
-                        error("Rollback completed — Deployment failed.")
+                        error("Rollback executed — Deployment failed.")
                     }
 
                     writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
@@ -150,22 +150,68 @@ pipeline {
     }
 
     /* --------------------------------------------------------
-       POST ACTIONS (Notifications)
+       POST: EMAIL + SLACK NOTIFICATIONS
     -------------------------------------------------------- */
     post {
+
         success {
+            // Slack
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
                 message: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
+
+            // Email
+            emailext(
+                to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com, lohithbandla5@gmail.com, bhargavisriinivas@gmail.com",
+                subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+Hello Team,
+
+The CI/CD pipeline completed successfully.
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Status: SUCCESS
+
+Build Log:
+${env.BUILD_URL}console
+
+Regards,
+Jenkins
+                """,
+                attachLog: true
+            )
         }
 
         failure {
+            // Slack
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
                 message: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+
+            // Email
+            emailext(
+                to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com, lohithbandla5@gmail.com, bhargavisriinivas@gmail.com",
+                subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+Hello Team,
+
+The CI/CD pipeline has FAILED.
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+
+View logs:
+${env.BUILD_URL}console
+
+Regards,
+Jenkins
+                """,
+                attachLog: true
             )
         }
     }
