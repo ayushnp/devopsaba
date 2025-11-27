@@ -14,7 +14,7 @@ pipeline {
     stages {
 
         /* --------------------------------------------------------
-           STAGE 1 — Detect PR Build
+           DETECT PR BUILD
         -------------------------------------------------------- */
         stage('Determine Build Type') {
             steps {
@@ -25,13 +25,20 @@ pipeline {
                         env.PR_CONTAINER = "devopsaba-pr-${env.PR_ID}"
                         env.PR_PORT = (5000 + env.PR_ID.toInteger()).toString()
 
+                        // Detect Jenkins host IP automatically
+                        env.HOST_IP = bat(
+                            script: 'powershell -command "(Invoke-WebRequest -uri ""http://ipinfo.io/ip"").Content"',
+                            returnStdout: true
+                        ).trim()
+
                         echo "🔵 Pull Request Build Detected"
                         echo "PR ID       : ${env.PR_ID}"
-                        echo "PR Container: ${env.PR_CONTAINER}"
-                        echo "PR Port     : ${env.PR_PORT}"
+                        echo "Container   : ${env.PR_CONTAINER}"
+                        echo "Port        : ${env.PR_PORT}"
+                        echo "Host IP     : ${env.HOST_IP}"
                     } else {
                         env.IS_PR = "false"
-                        echo "🟢 Main Branch Build"
+                        echo "🟢 MAIN Branch Build"
                     }
                 }
             }
@@ -39,9 +46,7 @@ pipeline {
 
         /* -------------------------------------------------------- */
         stage('Checkout Code') {
-            steps {
-                checkout scm
-            }
+            steps { checkout scm }
         }
 
         /* -------------------------------------------------------- */
@@ -59,7 +64,7 @@ pipeline {
         }
 
         /* -------------------------------------------------------- */
-        stage('Code Vulnerability Scan (Trivy FS)') {
+        stage('Trivy FS Scan') {
             steps {
                 bat """
                     docker run --rm ^
@@ -84,7 +89,7 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           PR: Deploy Temporary Environment
+           PR ENVIRONMENT DEPLOYMENT
         -------------------------------------------------------- */
         stage('Deploy PR Environment') {
             when { expression { env.IS_PR == "true" } }
@@ -92,19 +97,20 @@ pipeline {
                 bat """
                     docker stop ${env.PR_CONTAINER} || echo No container
                     docker rm ${env.PR_CONTAINER} || echo No container
-
                     docker run -d -p ${env.PR_PORT}:5000 --name ${env.PR_CONTAINER} %IMAGE_VERSION%
                 """
 
-                echo "🌐 Preview URL: http://YOUR_PUBLIC_IP:${env.PR_PORT}/"
-                echo "💡 This environment will be deleted when PR is closed."
+                echo "🌐 PREVIEW ENVIRONMENT LIVE!"
+                echo "👉 URL: http://${env.HOST_IP}:${env.PR_PORT}/"
+                echo "⚠ This environment will remain until PR is closed."
             }
         }
 
         /* --------------------------------------------------------
            MAIN BRANCH ONLY
         -------------------------------------------------------- */
-        stage('Image Vulnerability Scan (Trivy Image)') {
+
+        stage('Image Scan (Trivy Image)') {
             when { expression { env.IS_PR == "false" } }
             steps {
                 bat """
@@ -117,7 +123,7 @@ pipeline {
             }
         }
 
-        stage('Login to Docker Hub') {
+        stage('Docker Hub Login') {
             when { expression { env.IS_PR == "false" } }
             steps {
                 withCredentials([usernamePassword(
@@ -130,7 +136,7 @@ pipeline {
             }
         }
 
-        stage('Push Image to Docker Hub') {
+        stage('Push Image') {
             when { expression { env.IS_PR == "false" } }
             steps {
                 bat """
@@ -140,7 +146,7 @@ pipeline {
             }
         }
 
-        stage('Deploy Container') {
+        stage('Deploy to Production') {
             when { expression { env.IS_PR == "false" } }
             steps {
                 bat """
@@ -152,39 +158,35 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           AUTO-ROLLBACK
+           AUTO-ROLLBACK (MAIN ONLY)
         -------------------------------------------------------- */
-        stage('Verify Deployment & Auto Rollback') {
+        stage('Verify & Auto Rollback') {
             when { expression { env.IS_PR == "false" } }
             steps {
                 script {
-
                     def running = bat(
                         script: 'docker inspect -f "{{.State.Running}}" devopsaba 2>NUL',
                         returnStdout: true
                     ).trim().toLowerCase().replace('"','')
 
                     if (!running.contains("true")) {
-                        echo "❌ Deployment Failure — Rolling Back..."
+                        echo "❌ Production Deployment Failed — Rolling Back..."
 
-                        bat 'docker stop devopsaba || echo No container'
-                        bat 'docker rm devopsaba || echo No container'
+                        bat "docker stop devopsaba || echo No container"
+                        bat "docker rm devopsaba || echo No container"
 
                         if (!fileExists(env.LAST_SUCCESS_FILE)) {
-                            error("⚠ No previous stable image to rollback to.")
+                            error("No rollback image available!")
                         }
 
-                        def lastImage = readFile(env.LAST_SUCCESS_FILE).trim()
-
-                        bat """
-                            docker run -d -p 5000:5000 --name devopsaba ${lastImage}
-                        """
+                        def last = readFile(env.LAST_SUCCESS_FILE).trim()
+                        bat "docker run -d -p 5000:5000 --name devopsaba ${last}"
 
                         error("Rollback executed because deployment failed.")
                     }
 
-                    echo "✔ Deployment OK — Saving stable version"
                     writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
+                    echo "✔ Production OK — Marking image as stable"
                 }
             }
         }
@@ -195,11 +197,13 @@ pipeline {
     -------------------------------------------------------- */
     post {
 
-        always {
+        /* Only delete PR environments AFTER PR is CLOSED */
+        cleanup {
             script {
                 if (env.IS_PR == "true") {
-                    echo "🧹 Cleaning PR Environment..."
-                    bat "docker stop ${env.PR_CONTAINER} || echo Not running"
+                    echo "🧹 PR Closed — Removing Preview Environment..."
+
+                    bat "docker stop ${env.PR_CONTAINER} || echo Already stopped"
                     bat "docker rm ${env.PR_CONTAINER} || echo Already removed"
                 }
             }
