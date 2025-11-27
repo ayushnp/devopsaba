@@ -80,7 +80,7 @@ TEMPLATE = """
 <div class="container-fluid py-4">
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-      <h2 class="header-gradient mb-1">Advanced System Monitor</h2>
+      <h2 class="header-gradient mb-1">HEllo AYUSH</h2>
       <div class="small-muted">
         <span id="status-indicator" class="status-dot status-good"></span>
         Monitoring active · Updated: <span id="last-update">-</span>
