@@ -23,27 +23,21 @@ pipeline {
                         env.PR_CONTAINER = "devopsaba-pr-${env.PR_ID}"
                         env.PR_PORT = (5000 + env.PR_ID.toInteger()).toString()
 
-                        // Use faster working method to fetch public IP
+                        // Public IP fetch for PR preview
                         def ip = bat(
                             script: 'powershell -command "(Invoke-WebRequest -uri \'https://api.ipify.org\').Content"',
                             returnStdout: true
                         ).trim()
 
-                        if (!ip || ip == "") {
-                            ip = "127.0.0.1"
-                        }
-
-                        env.HOST_IP = ip
+                        env.HOST_IP = ip ?: "127.0.0.1"
 
                         echo "🔵 Pull Request Build Detected"
-                        echo "PR ID       : ${env.PR_ID}"
-                        echo "Container   : ${env.PR_CONTAINER}"
-                        echo "Port        : ${env.PR_PORT}"
-                        echo "Host IP     : ${env.HOST_IP}"
-
+                        echo "PR ID: ${env.PR_ID}"
+                        echo "Preview Port: ${env.PR_PORT}"
+                        echo "Host IP: ${env.HOST_IP}"
                     } else {
                         env.IS_PR = "false"
-                        echo "🟢 MAIN Branch Build"
+                        echo "🟢 Main Branch Build Detected"
                     }
                 }
             }
@@ -57,7 +51,7 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           SECURITY SCAN 1 — GITLEAKS
+           SECURITY SCAN — GITLEAKS
         -------------------------------------------------------- */
         stage('Secret Scan (Gitleaks)') {
             steps {
@@ -73,7 +67,7 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           SECURITY SCAN 2 — TRIVY FS
+           SECURITY SCAN — TRIVY FS
         -------------------------------------------------------- */
         stage('Trivy FS Scan') {
             steps {
@@ -82,8 +76,7 @@ pipeline {
                         -v %CD%:/repo ^
                         aquasec/trivy:latest fs /repo ^
                         --severity HIGH,CRITICAL ^
-                        --exit-code 1 ^
-                        
+                        --exit-code 1
                 """
             }
         }
@@ -101,7 +94,7 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           PR DEPLOYMENT (TEMPORARY ENVIRONMENT)
+           PR DEPLOYMENT
         -------------------------------------------------------- */
         stage('Deploy PR Environment') {
             when { expression { env.IS_PR == "true" } }
@@ -112,27 +105,28 @@ pipeline {
                     docker run -d -p ${env.PR_PORT}:5000 --name ${env.PR_CONTAINER} %IMAGE_VERSION%
                 """
 
-                echo "🌐 PR PREVIEW LIVE!"
-                echo "👉 http://${env.HOST_IP}:${env.PR_PORT}/"
+                echo "🌐 PR PREVIEW AVAILABLE!"
+                echo "➡ http://${env.HOST_IP}:${env.PR_PORT}/"
             }
         }
 
         /* --------------------------------------------------------
-           MAIN BRANCH ONLY — Image Scan & Deployment
+           MAIN BRANCH — TRIVY IMAGE SCAN (FIXED)
         -------------------------------------------------------- */
-
         stage('Image Scan (Trivy Image)') {
             when { expression { env.IS_PR == "false" } }
             steps {
                 bat """
                     docker run --rm aquasec/trivy:latest image %IMAGE% ^
                         --severity HIGH,CRITICAL ^
-                        --exit-code 1 ^
-                        --skip-db-update
+                        --exit-code 1
                 """
             }
         }
 
+        /* --------------------------------------------------------
+           PUSH TO DOCKER HUB
+        -------------------------------------------------------- */
         stage('DockerHub Login') {
             when { expression { env.IS_PR == "false" } }
             steps {
@@ -156,6 +150,9 @@ pipeline {
             }
         }
 
+        /* --------------------------------------------------------
+           DEPLOY TO PRODUCTION
+        -------------------------------------------------------- */
         stage('Deploy to Production') {
             when { expression { env.IS_PR == "false" } }
             steps {
@@ -168,13 +165,12 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           AUTO ROLLBACK SYSTEM
+           AUTO-ROLLBACK
         -------------------------------------------------------- */
         stage('Verify & Auto Rollback') {
             when { expression { env.IS_PR == "false" } }
             steps {
                 script {
-
                     def running = bat(
                         script: 'docker inspect -f "{{.State.Running}}" devopsaba 2>NUL',
                         returnStdout: true
@@ -182,39 +178,39 @@ pipeline {
 
                     if (!running.contains("true")) {
 
-                        echo "❌ Deployment Failed — Rolling Back..."
+                        echo "❌ Deployment Failed — Starting Rollback..."
 
                         bat "docker stop devopsaba || echo No container"
                         bat "docker rm devopsaba || echo No container"
 
                         if (!fileExists(env.LAST_SUCCESS_FILE)) {
-                            error("⚠ No previous stable image found")
+                            error("❗ No previous stable image exists to rollback.")
                         }
 
                         def last = readFile(env.LAST_SUCCESS_FILE).trim()
 
                         bat "docker run -d -p 5000:5000 --name devopsaba ${last}"
 
-                        error("Rollback executed due to failure.")
+                        error("Rollback completed — Deployment failed.")
                     }
 
                     writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
-                    echo "✔ Deployment Healthy — Marked Stable"
+                    echo "✔ Deployment Healthy — Saved as stable"
                 }
             }
         }
     }
 
     /* --------------------------------------------------------
-       POST ACTIONS
+       POST ACTIONS (Notifications & Cleanup)
     -------------------------------------------------------- */
     post {
 
-        // IMPORTANT: Clean PR env ONLY on PR close, not every build.
+        // Executes ONLY when branch or PR is deleted or completed
         cleanup {
             script {
                 if (env.IS_PR == "true") {
-                    echo "🧹 Cleaning PR Environment (PR Closed)…"
+                    echo "🧹 Removing PR environment..."
                     bat "docker stop ${env.PR_CONTAINER} || echo Already stopped"
                     bat "docker rm ${env.PR_CONTAINER} || echo Already removed"
                 }
