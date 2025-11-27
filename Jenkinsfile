@@ -83,7 +83,7 @@ pipeline {
                         aquasec/trivy:latest fs /repo ^
                         --severity HIGH,CRITICAL ^
                         --exit-code 1 ^
-                        --skip-db-update
+                        
                 """
             }
         }
