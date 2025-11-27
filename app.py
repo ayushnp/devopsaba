@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template_string
+ from flask import Flask, jsonify, render_template_string
 import psutil
 from datetime import datetime, timedelta
 
@@ -9,7 +9,7 @@ TEMPLATE = """
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Advanced System Monitor</title>
+  <title>Hello VVCEr</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
