@@ -7,20 +7,24 @@ pipeline {
         IMAGE_VERSION = "ayushnp10/devopsaba:${BUILD_NUMBER}"
         LAST_SUCCESS_FILE = "last_success_image.txt"
 
+        // PR Preview Tags
         PREVIEW_IMAGE = "ayushnp10/devopsaba:pr-${CHANGE_ID}"
         PREVIEW_CONTAINER = "devopsaba-pr-${CHANGE_ID}"
-        PREVIEW_PORT = "$((5000 + CHANGE_ID as Integer))"
+        // PREVIEW_PORT will be calculated later
     }
 
     stages {
 
+        /* --------------------------------------------------------
+           CHECKOUT SOURCE CODE
+        -------------------------------------------------------- */
         stage('Checkout Code') {
             steps { checkout scm }
         }
 
-        /* -------------------------------
-           SECURITY SCANS
-        --------------------------------*/
+        /* --------------------------------------------------------
+           SECURITY SCAN — GITLEAKS
+        -------------------------------------------------------- */
         stage('Secret Scan (Gitleaks)') {
             steps {
                 bat """
@@ -34,6 +38,9 @@ pipeline {
             }
         }
 
+        /* --------------------------------------------------------
+           SECURITY SCAN — TRIVY FS
+        -------------------------------------------------------- */
         stage('Trivy FS Scan') {
             steps {
                 bat """
@@ -47,44 +54,57 @@ pipeline {
             }
         }
 
-        /* -------------------------------------------
-           BUILD DOCKER IMAGE (PR or MAIN)
-        -------------------------------------------- */
+        /* --------------------------------------------------------
+           COMPUTE PR PREVIEW PORT (ONLY FOR PR BUILDS)
+        -------------------------------------------------------- */
+        stage('Compute Preview Port') {
+            when { expression { return env.CHANGE_ID } }
+            steps {
+                script {
+                    def basePort = 6000
+                    env.PREVIEW_PORT = (basePort + env.CHANGE_ID.toInteger()).toString()
+                    echo "Computed Preview Port = ${env.PREVIEW_PORT}"
+                }
+            }
+        }
+
+        /* --------------------------------------------------------
+           BUILD DOCKER IMAGE
+           (PR builds → preview image, main → production image)
+        -------------------------------------------------------- */
         stage('Build Docker Image') {
             steps {
                 script {
                     if (env.CHANGE_ID) {
-                        echo "📌 PR BUILD DETECTED — Using PR Tag"
-                        bat """
-                            docker build -t %PREVIEW_IMAGE% .
-                        """
+                        echo "📌 Building PR Preview Image"
+                        bat "docker build -t ${env.PREVIEW_IMAGE} ."
                     } else {
-                        echo "📌 MAIN BRANCH — Building Production Image"
+                        echo "📌 Building Production Image"
                         bat """
-                            docker build -t %IMAGE_VERSION% .
-                            docker tag %IMAGE_VERSION% %IMAGE%
+                            docker build -t ${env.IMAGE_VERSION} .
+                            docker tag ${env.IMAGE_VERSION} ${env.IMAGE}
                         """
                     }
                 }
             }
         }
 
-        /* -------------------------------------------
-           TRIVY SCAN FOR BOTH TYPES
-        -------------------------------------------- */
-        stage('Scan Image') {
+        /* --------------------------------------------------------
+           IMAGE SCAN
+        -------------------------------------------------------- */
+        stage('Image Scan (Trivy Image)') {
             steps {
                 script {
                     if (env.CHANGE_ID) {
                         bat """
-                            docker run --rm aquasec/trivy:latest image %PREVIEW_IMAGE% ^
+                            docker run --rm aquasec/trivy:latest image ${env.PREVIEW_IMAGE} ^
                                 --severity HIGH,CRITICAL ^
                                 --ignore-unfixed ^
                                 --exit-code 1
                         """
                     } else {
                         bat """
-                            docker run --rm aquasec/trivy:latest image %IMAGE% ^
+                            docker run --rm aquasec/trivy:latest image ${env.IMAGE} ^
                                 --severity HIGH,CRITICAL ^
                                 --ignore-unfixed ^
                                 --exit-code 1
@@ -94,9 +114,9 @@ pipeline {
             }
         }
 
-        /* -------------------------------------------
-           PUSH IMAGE (PR or MAIN)
-        -------------------------------------------- */
+        /* --------------------------------------------------------
+           DOCKER HUB LOGIN
+        -------------------------------------------------------- */
         stage('DockerHub Login') {
             steps {
                 withCredentials([usernamePassword(
@@ -109,93 +129,96 @@ pipeline {
             }
         }
 
+        /* --------------------------------------------------------
+           PUSH IMAGE
+        -------------------------------------------------------- */
         stage('Push Image') {
             steps {
                 script {
                     if (env.CHANGE_ID) {
-                        bat """ docker push %PREVIEW_IMAGE% """
+                        bat """ docker push ${env.PREVIEW_IMAGE} """
                     } else {
                         bat """
-                            docker push %IMAGE_VERSION%
-                            docker push %IMAGE%
+                            docker push ${env.IMAGE_VERSION}
+                            docker push ${env.IMAGE}
                         """
                     }
                 }
             }
         }
 
-        /* ---------------------------------------------------
-           ⭐ NEW FEATURE: PR Preview Environment Deployment
-        -----------------------------------------------------*/
+        /* --------------------------------------------------------
+           🚀 PR PREVIEW DEPLOYMENT (ONLY FOR PULL REQUESTS)
+        -------------------------------------------------------- */
         stage('Deploy Preview Environment (PR Only)') {
             when { expression { return env.CHANGE_ID } }
             steps {
                 script {
-                    echo "🚀 Deploying Preview Environment for PR #${CHANGE_ID}"
+                    echo "🚀 Deploying Preview Environment for PR #${env.CHANGE_ID}"
 
-                    bat "docker stop %PREVIEW_CONTAINER% || echo none"
-                    bat "docker rm %PREVIEW_CONTAINER% || echo none"
+                    bat "docker stop ${env.PREVIEW_CONTAINER} || echo none"
+                    bat "docker rm ${env.PREVIEW_CONTAINER} || echo none"
 
                     bat """
-                        docker run -d -p %PREVIEW_PORT%:5000 ^
-                        --name %PREVIEW_CONTAINER% %PREVIEW_IMAGE%
+                        docker run -d -p ${env.PREVIEW_PORT}:5000 ^
+                        --name ${env.PREVIEW_CONTAINER} ${env.PREVIEW_IMAGE}
                     """
 
                     echo "🌐 Preview URL:"
-                    echo "👉 http://<your-server-ip>:%PREVIEW_PORT%/"
+                    echo "👉 http://<your-server-ip>:${env.PREVIEW_PORT}/"
                 }
             }
         }
 
-        /* -----------------------------------------------------------------
-           DELETE PREVIEW ENVIRONMENT WHEN PR IS CLOSED
-        ------------------------------------------------------------------ */
+        /* --------------------------------------------------------
+           🧹 DELETE PREVIEW WHEN PR IS CLOSED
+        -------------------------------------------------------- */
         stage('Destroy Preview (PR Closed)') {
             when {
                 allOf {
                     expression { return env.CHANGE_ID }
-                    expression { return env.CHANGE_TARGET == "main" }
                     expression { return env.CHANGE_ACTION == "closed" }
                 }
             }
             steps {
-                echo "🧹 PR Closed — Removing Preview Environment"
-                bat "docker stop %PREVIEW_CONTAINER% || echo none"
-                bat "docker rm %PREVIEW_CONTAINER% || echo none"
+                echo "🧹 Pull Request closed — deleting preview environment."
+                bat "docker stop ${env.PREVIEW_CONTAINER} || echo none"
+                bat "docker rm ${env.PREVIEW_CONTAINER} || echo none"
             }
         }
 
-        /* -------------------------------------------------------
-           PROD DEPLOYMENT (ONLY MAIN BRANCH)
-        --------------------------------------------------------*/
+        /* --------------------------------------------------------
+           DEPLOY TO PRODUCTION (ONLY WHEN BRANCH = main)
+        -------------------------------------------------------- */
         stage('Deploy to Production') {
-            when { branch "main" }
+            when { branch 'main' }
             steps {
                 bat """
-                    docker stop devopsaba || echo none
-                    docker rm devopsaba || echo none
+                    docker stop devopsaba || echo No container
+                    docker rm devopsaba || echo No container
                     docker run -d -p 5000:5000 --name devopsaba %IMAGE%
                 """
             }
         }
 
-        /* -------------------------------------------------------
-           ROLLBACK (ONLY MAIN)
-        --------------------------------------------------------*/
+        /* --------------------------------------------------------
+           AUTO-ROLLBACK SYSTEM
+        -------------------------------------------------------- */
         stage('Verify & Auto Rollback') {
-            when { branch "main" }
+            when { branch 'main' }
             steps {
                 script {
+
                     def running = bat(
                         script: 'docker inspect -f "{{.State.Running}}" devopsaba 2>NUL',
                         returnStdout: true
                     ).trim().toLowerCase()
 
                     if (!running.contains("true")) {
-
                         echo "❌ Deployment Failed — Starting Rollback..."
-                        bat "docker stop devopsaba || echo none"
-                        bat "docker rm devopsaba || echo none"
+
+                        bat "docker stop devopsaba || echo No container"
+                        bat "docker rm devopsaba || echo No container"
 
                         if (!fileExists(env.LAST_SUCCESS_FILE)) {
                             error("❗ No previous stable image exists for rollback.")
@@ -204,6 +227,7 @@ pipeline {
                         def last = readFile(env.LAST_SUCCESS_FILE).trim()
 
                         bat "docker run -d -p 5000:5000 --name devopsaba ${last}"
+
                         error("Rollback executed — Deployment failed.")
                     }
 
@@ -214,15 +238,46 @@ pipeline {
         }
     }
 
-    /* ----------------------------
-       NOTIFICATIONS
-    -------------------------------*/
+    /* --------------------------------------------------------
+       POST: EMAIL + SLACK NOTIFICATIONS
+    -------------------------------------------------------- */
     post {
+
         success {
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
                 message: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+
+            emailext(
+                to: "ayushkotegar10@gmail.com,
+                     aadyambhat2005@gmail.com,
+                     lohithbandla5@gmail.com,
+                     bhargavisriinivas@gmail.com",
+                subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+Hello Team,
+
+The CI/CD pipeline completed successfully.
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Status: SUCCESS
+
+${
+env.CHANGE_ID ?
+"Preview URL: http://<your-server-ip>:" + env.PREVIEW_PORT :
+"Production deployment completed."
+}
+
+Build Log:
+${env.BUILD_URL}console
+
+Regards,
+Jenkins
+                """,
+                attachLog: true
             )
         }
 
@@ -231,6 +286,29 @@ pipeline {
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
                 message: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+
+            emailext(
+                to: "ayushkotegar10@gmail.com,
+                     aadyambhat2005@gmail.com,
+                     lohithbandla5@gmail.com,
+                     bhargavisriinivas@gmail.com",
+                subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+Hello Team,
+
+The CI/CD pipeline has FAILED.
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+
+View logs:
+${env.BUILD_URL}console
+
+Regards,
+Jenkins
+                """,
+                attachLog: true
             )
         }
     }
