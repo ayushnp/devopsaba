@@ -1,13 +1,23 @@
-FROM python:3.10-slim
+# Stage 1: Build frontend
+FROM node:18-alpine AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ ./
+RUN npm run build
 
+# Stage 2: Backend
+FROM node:18-alpine
 WORKDIR /app
 
-# Install dependencies first (better caching)
-COPY requirements.txt .
+COPY backend/package*.json ./
+RUN npm install --production
 
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/ ./
+COPY --from=frontend-build /app/frontend/dist ./public
 
-# Copy only required files
-COPY . .
+RUN mkdir -p uploads
 
-CMD ["python", "app.py"]
+EXPOSE 4000
+
+CMD ["node", "src/server.js"]
