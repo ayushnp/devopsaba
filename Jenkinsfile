@@ -8,31 +8,41 @@ pipeline {
         LAST_SUCCESS_FILE = "last_success_image.txt"
         
         // PR Preview Environment Variables
-        PREVIEW_IMAGE = "${env.CHANGE_ID ? \"ayushnp10/devopsaba:pr-${env.CHANGE_ID}\" : \"\"}"
-        PREVIEW_CONTAINER = "${env.CHANGE_ID ? \"preview-${env.CHANGE_ID}\" : \"\"}"
+        PREVIEW_IMAGE = "${env.CHANGE_ID ? "ayushnp10/devopsaba:pr-${env.CHANGE_ID}" : ""}"
+        PREVIEW_CONTAINER = "${env.CHANGE_ID ? "preview-${env.CHANGE_ID}" : ""}"
         PREVIEW_PORT = "${env.CHANGE_ID ? (6000 + env.CHANGE_ID.toInteger()) : 0}"
-        SERVER_IP = "YOUR-JENKINS-SERVER-IP"  // Replace with your actual server IP
+        SERVER_IP = "10.38.136.212"
     }
 
     stages {
+
+        /* --------------------------------------------------------
+           CHECKOUT SOURCE
+        -------------------------------------------------------- */
         stage('Checkout Code') {
             steps { checkout scm }
         }
 
+        /* --------------------------------------------------------
+           DETECT PR
+        -------------------------------------------------------- */
         stage('Detect Pull Request') {
             steps {
                 script {
                     if (env.CHANGE_ID) {
                         echo "🔵 PR DETECTED: #${env.CHANGE_ID} (${env.CHANGE_BRANCH})"
-                        echo "Preview: ${PREVIEW_IMAGE} -> port ${PREVIEW_PORT}"
+                        echo "Preview image: ${PREVIEW_IMAGE}"
+                        echo "Preview port:  ${PREVIEW_PORT}"
                     } else {
-                        echo "🟢 PRODUCTION BUILD (main branch)"
+                        echo "🟢 PRODUCTION BUILD"
                     }
                 }
             }
         }
 
-        // Security scans ONLY for production builds
+        /* --------------------------------------------------------
+           SECURITY SCANS (PRODUCTION ONLY)
+        -------------------------------------------------------- */
         stage('Secret Scan (Gitleaks)') {
             when { expression { return env.CHANGE_ID == null } }
             steps {
@@ -60,6 +70,9 @@ pipeline {
             }
         }
 
+        /* --------------------------------------------------------
+           BUILD IMAGE (PR OR PROD)
+        -------------------------------------------------------- */
         stage('Build Docker Image') {
             steps {
                 script {
@@ -77,39 +90,42 @@ pipeline {
             }
         }
 
-        // PR Preview Deployment
+        /* --------------------------------------------------------
+           DEPLOY PR PREVIEW ENVIRONMENT
+        -------------------------------------------------------- */
         stage('Deploy PR Preview') {
             when { expression { return env.CHANGE_ID != null } }
             steps {
                 script {
-                    echo "🚀 Deploying Preview Environment..."
-                    
-                    // Cleanup old preview
-                    bat "docker stop ${PREVIEW_CONTAINER} || echo 'No old container'"
-                    bat "docker rm ${PREVIEW_CONTAINER} || echo 'No old container'"
-                    
-                    // Deploy new preview
+                    echo "🚀 Deploying PR Preview Environment..."
+
+                    // Remove older preview instance
+                    bat "docker stop ${PREVIEW_CONTAINER} || echo No old instance"
+                    bat "docker rm ${PREVIEW_CONTAINER} || echo Already removed"
+
+                    // Run preview container
                     bat """
                         docker run -d ^
                             -p ${PREVIEW_PORT}:4000 ^
                             --name ${PREVIEW_CONTAINER} ^
                             ${PREVIEW_IMAGE}
                     """
-                    
+
                     def previewUrl = "http://${SERVER_IP}:${PREVIEW_PORT}"
                     echo "🌐 PREVIEW URL: ${previewUrl}"
-                    
-                    // Slack notification
+
                     slackSend(
                         channel: '#ci-cd-pipeline',
                         tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
-                        message: "🟦 PR #${env.CHANGE_ID} Preview Ready! ${previewUrl}"
+                        message: "🟦 PR #${env.CHANGE_ID} Preview Ready → ${previewUrl}"
                     )
                 }
             }
         }
 
-        // Production pipeline (skipped for PRs)
+        /* --------------------------------------------------------
+           PRODUCTION PIPELINE (SKIPPED IN PR)
+        -------------------------------------------------------- */
         stage('Image Scan (Trivy Image)') {
             when { expression { return env.CHANGE_ID == null } }
             steps {
@@ -165,32 +181,39 @@ pipeline {
                     ).trim().toLowerCase()
 
                     if (!running.contains("true")) {
-                        echo "❌ DEPLOYMENT FAILED — ROLLBACK..."
+                        echo "❌ Deployment Failed — Rolling Back..."
+
                         bat "docker stop devopsaba || echo No container"
                         bat "docker rm devopsaba || echo No container"
 
                         if (!fileExists(env.LAST_SUCCESS_FILE)) {
-                            error("❗ No rollback image available")
+                            error("❗ No stable image found for rollback.")
                         }
 
                         def lastImage = readFile(env.LAST_SUCCESS_FILE).trim()
+
                         bat "docker run -d -p 5000:4000 --name devopsaba ${lastImage}"
-                        error("Rollback completed")
+
+                        error("Rollback executed.")
                     }
 
                     writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
-                    echo "✅ Production deployment healthy"
+                    echo "✅ Production Deployment Healthy."
                 }
             }
         }
     }
 
+    /* --------------------------------------------------------
+       POST ACTIONS
+    -------------------------------------------------------- */
     post {
-        // Auto-cleanup PR environments
+
+        /* CLEAN PREVIEW ENV ON PR CLOSE */
         cleanup {
             script {
                 if (env.CHANGE_ID) {
-                    echo "🧹 Cleaning PR ${env.CHANGE_ID} environment..."
+                    echo "🧹 Cleaning PR Preview Environment..."
                     bat "docker stop ${PREVIEW_CONTAINER} || echo No container"
                     bat "docker rm ${PREVIEW_CONTAINER} || echo No container"
                 }
@@ -201,12 +224,12 @@ pipeline {
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
-                message: "✅ ${env.CHANGE_ID ? 'PR Preview' : 'Production'} SUCCESS: ${env.JOB_NAME} #${BUILD_NUMBER}"
+                message: "✅ SUCCESS: ${env.CHANGE_ID ? 'PR Preview' : 'Production'} Build #${env.BUILD_NUMBER}"
             )
             emailext(
                 to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com, lohithbandla5@gmail.com, bhargavisriinivas@gmail.com",
-                subject: "SUCCESS: ${env.JOB_NAME} #${BUILD_NUMBER}",
-                body: "Pipeline completed successfully. Logs: ${env.BUILD_URL}console",
+                subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: "Pipeline completed successfully.\nLogs: ${env.BUILD_URL}console",
                 attachLog: true
             )
         }
@@ -215,12 +238,12 @@ pipeline {
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
-                message: "❌ ${env.CHANGE_ID ? 'PR Preview' : 'Production'} FAILED: ${env.JOB_NAME} #${BUILD_NUMBER}"
+                message: "❌ FAILED: ${env.CHANGE_ID ? 'PR Preview' : 'Production'} Build #${env.BUILD_NUMBER}"
             )
             emailext(
                 to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com, lohithbandla5@gmail.com, bhargavisriinivas@gmail.com",
-                subject: "FAILED: ${env.JOB_NAME} #${BUILD_NUMBER}",
-                body: "Pipeline failed. Logs: ${env.BUILD_URL}console",
+                subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: "Pipeline FAILED.\nLogs: ${env.BUILD_URL}console",
                 attachLog: true
             )
         }
