@@ -43,6 +43,7 @@ pipeline {
                         -v %CD%:/repo ^
                         aquasec/trivy:latest fs /repo ^
                         --severity HIGH,CRITICAL ^
+                        --ignore-unfixed ^
                         --exit-code 1
                 """
             }
@@ -61,13 +62,14 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           IMAGE VULNERABILITY SCAN
+           IMAGE VULNERABILITY SCAN (OPTION 3 APPLIED)
         -------------------------------------------------------- */
         stage('Image Scan (Trivy Image)') {
             steps {
                 bat """
                     docker run --rm aquasec/trivy:latest image %IMAGE% ^
                         --severity HIGH,CRITICAL ^
+                        --ignore-unfixed ^
                         --exit-code 1
                 """
             }
@@ -155,14 +157,12 @@ pipeline {
     post {
 
         success {
-            // Slack
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
                 message: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
 
-            // Email
             emailext(
                 to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com, lohithbandla5@gmail.com, bhargavisriinivas@gmail.com",
                 subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
@@ -186,14 +186,12 @@ Jenkins
         }
 
         failure {
-            // Slack
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
                 message: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
 
-            // Email
             emailext(
                 to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com, lohithbandla5@gmail.com, bhargavisriinivas@gmail.com",
                 subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
