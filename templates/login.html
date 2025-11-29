@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - Vidyuth 2026</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #121212; }
+        .auth-container { background: rgba(255, 255, 255, 0.1); padding: 40px; border-radius: 10px; backdrop-filter: blur(10px); width: 100%; max-width: 400px; color: white; }
+        input { width: 100%; margin: 10px 0; background: rgba(255,255,255,0.8); }
+        h2 { text-align: center; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <h2>Login</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert {{ category }}" style="color: #ff6b6b; text-align: center; margin-bottom: 10px;">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="/login">
+            <input type="email" name="email" placeholder="Email" required>
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit">Login</button>
+        </form>
+        <p style="text-align:center; margin-top:15px;">Don't have an account? <a href="/signup" style="color:#00bcd4;">Sign Up</a></p>
+    </div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Vidyuth 2026</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        /* Simple centered form style */
+        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #121212; }
+        .auth-container { background: rgba(255, 255, 255, 0.1); padding: 40px; border-radius: 10px; backdrop-filter: blur(10px); width: 100%; max-width: 400px; color: white; }
+        input, select { width: 100%; margin: 10px 0; background: rgba(255,255,255,0.8); }
+        h2 { text-align: center; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <h2>Sign Up</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <form method="POST" action="/signup">
+            <input type="text" name="username" placeholder="Username" required>
+            <input type="email" name="email" placeholder="Email" required>
+            <input type="password" name="password" placeholder="Password" required>
+            
+            <label for="role">I am a:</label>
+            <select name="role" required>
+                <option value="student">Student</option>
+                <option value="manager">Event Manager</option>
+            </select>
+            
+            <button type="submit">Create Account</button>
+        </form>
+        <p style="text-align:center; margin-top:15px;">Already have an account? <a href="/login" style="color:#00bcd4;">Login</a></p>
+    </div>
+</body>
+</html>

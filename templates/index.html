@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>VIDYUTH 2026</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+</head>
+<body>
+  <div class="video-background">
+    <video autoplay muted loop playsinline>
+      <source src="vidyuth.mp4" type="video/mp4">
+      
+    </video>
+    <div class="overlay"></div>
+    <div class="hero-content">
+      <h1>Vidyuth 2026</h1>
+      <div id="countdown"></div>
+    </div>
+  </div>
+  
+
+  <nav>
+    <a href="{{ url_for('home') }}#about">About</a>
+    <a href="{{ url_for('home') }}#events">Events</a>
+    <a href="{{ url_for('home') }}#schedule">Schedule</a>
+    <a href="{{ url_for('home') }}#contact">Contact</a>
+    
+    {% if current_user.is_authenticated %}
+      <a href="{{ url_for('dashboard') }}" style="color: #00bcd4;">Dashboard ({{ current_user.username }})</a>
+      <a href="{{ url_for('logout') }}" style="color: #ff6b6b;">Logout</a>
+    {% else %}
+      <a href="{{ url_for('login') }}">Login</a>
+      <a href="{{ url_for('signup') }}">Sign Up</a>
+    {% endif %}
+  </nav>
+
+  <section id="about" data-aos="fade-up">
+  <h2>About the Fest</h2>
+  <p>Welcome to College Fest 2026! A celebration of talent, creativity, and community. Join us for exciting events, performances, and workshops.</p>
+  <img src="vvce.jpg" alt="About" class="about-img" />
+</section>
+
+  
+  <section id="college-video" data-aos="fade-up">
+    <h2>College Fest Promo</h2>
+    <div class="video-wrapper">
+      <iframe 
+        src="https://www.youtube.com/embed/fKmVz1npg_s" 
+        title="College Fest Promo" 
+        frameborder="0" 
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+        allowfullscreen>
+      </iframe>
+    </div>
+  </section>
+  <section id="gallery" data-aos="fade-up">
+    <h2>Previous Year's Highlights</h2>
+    
+    <div class="gallery">
+      <div class="gallery-item">
+        <img src="image1.jpg" alt="Event Image 1">
+      </div>
+      <div class="gallery-item">
+        <img src="image2.jpg" alt="Event Image 2">
+      </div>
+      <div class="gallery-item">
+        <img src="image3.jpg" alt="Event Image 3">
+      </div>
+      <div class="gallery-item">
+        <img src="image4.jpg" alt="Event Image 4">
+      </div>
+      <!-- Add more images here -->
+  
+      <div class="gallery-item">
+        <video controls>
+          <source src="video1.mp4" >
+          
+        </video>
+      </div>
+      <div class="gallery-item">
+        <video controls>
+          <source src="video2.mp4" >
+          
+        </video>
+      </div>
+      <!-- Add more videos here -->
+    </div>
+  </section>
+  
+
+  <section id="events" data-aos="fade-up">
+    <h2>Events</h2>
+    <div class="card-grid">
+      <div class="card">🎮 Gaming Arena</div>
+      <div class="card">💻 Hackathon</div>
+      <div class="card">🎨 Art Zone</div>
+      <div class="card">🎤 Music War</div>
+      <div class="card">🤖 Robotics</div>
+      <div class="card">💃 Dance Floor</div>
+    </div>
+  </section>
+
+  <section id="schedule" data-aos="fade-up">
+    <h2>Schedule</h2>
+    <table>
+      <tr><th>Date</th><th>Event</th><th>Time</th></tr>
+      <tr><td>May 10</td><td>Opening Ceremony</td><td>10:00 AM</td></tr>
+      <tr><td>May 10</td><td>Hackathon</td><td>11:00 AM</td></tr>
+      <tr><td>May 11</td><td>Art Exhibition</td><td>1:00 PM</td></tr>
+      <tr><td>May 12</td><td>Finale Concert</td><td>6:00 PM</td></tr>
+    </table>
+  </section>
+
+  <section id="register" data-aos="fade-up">
+    <h2>Register</h2>
+    <form>
+      <input type="text" placeholder="Your Name" required />
+      <input type="email" placeholder="Your Email" required />
+      <select required>
+        <option value="">Select Event</option>
+        <option value="hackathon">Hackathon</option>
+        <option value="music">Music Battle</option>
+        <option value="art">Art Exhibition</option>
+      </select>
+      <button type="submit">Register</button>
+    </form>
+  </section>
+
+  <section id="contact" data-aos="fade-up">
+    <h2>Contact Us</h2>
+    <p>Email: ao@vvce.ac.in</p>
+    <p>Phone: +91 98765 43210</p>
+  </section>
+
+  <footer>
+    <p>&copy; 2025 College Fest. All rights reserved.</p>
+  </footer>
+
+  <script src="script.js"></script>
+  <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+  <script>AOS.init();</script>
+</body>
+</html>
