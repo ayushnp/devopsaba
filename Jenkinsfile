@@ -5,46 +5,21 @@ pipeline {
         DOCKERHUB_USER = "ayushnp10"
         IMAGE = "ayushnp10/devopsaba:latest"
         IMAGE_VERSION = "ayushnp10/devopsaba:${BUILD_NUMBER}"
-
         LAST_SUCCESS_FILE = "last_success_image.txt"
-
-        IS_PR = "false"
     }
 
     stages {
 
         /* --------------------------------------------------------
-           STAGE 1 — Detect PR Build
+           CHECKOUT SOURCE CODE
         -------------------------------------------------------- */
-        stage('Determine Build Type') {
-            steps {
-                script {
-                    if (env.CHANGE_ID) {
-                        env.IS_PR = "true"
-                        env.PR_ID = env.CHANGE_ID
-                        env.PR_CONTAINER = "devopsaba-pr-${env.PR_ID}"
-                        env.PR_PORT = (5000 + env.PR_ID.toInteger()).toString()
-
-                        echo "🔵 Pull Request Build Detected"
-                        echo "PR ID       : ${env.PR_ID}"
-                        echo "PR Container: ${env.PR_CONTAINER}"
-                        echo "PR Port     : ${env.PR_PORT}"
-                    } else {
-                        env.IS_PR = "false"
-                        echo "🟢 Main Branch Build"
-                    }
-                }
-            }
-        }
-
-        /* -------------------------------------------------------- */
         stage('Checkout Code') {
-            steps {
-                checkout scm
-            }
+            steps { checkout scm }
         }
 
-        /* -------------------------------------------------------- */
+        /* --------------------------------------------------------
+           SECURITY SCAN — GITLEAKS
+        -------------------------------------------------------- */
         stage('Secret Scan (Gitleaks)') {
             steps {
                 bat """
@@ -58,22 +33,24 @@ pipeline {
             }
         }
 
-        /* -------------------------------------------------------- */
-        stage('Code Vulnerability Scan (Trivy FS)') {
+        /* --------------------------------------------------------
+           SECURITY SCAN — TRIVY FS
+        -------------------------------------------------------- */
+        stage('Trivy FS Scan') {
             steps {
                 bat """
                     docker run --rm ^
                         -v %CD%:/repo ^
                         aquasec/trivy:latest fs /repo ^
                         --severity HIGH,CRITICAL ^
-                        --exit-code 1 ^
-                        --light ^
-                        --skip-db-update
+                        --exit-code 1
                 """
             }
         }
 
-        /* -------------------------------------------------------- */
+        /* --------------------------------------------------------
+           BUILD DOCKER IMAGE
+        -------------------------------------------------------- */
         stage('Build Docker Image') {
             steps {
                 bat """
@@ -84,41 +61,22 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           PR: Deploy Temporary Environment
+           IMAGE VULNERABILITY SCAN
         -------------------------------------------------------- */
-        stage('Deploy PR Environment') {
-            when { expression { env.IS_PR == "true" } }
-            steps {
-                bat """
-                    docker stop ${env.PR_CONTAINER} || echo No container
-                    docker rm ${env.PR_CONTAINER} || echo No container
-
-                    docker run -d -p ${env.PR_PORT}:5000 --name ${env.PR_CONTAINER} %IMAGE_VERSION%
-                """
-
-                echo "🌐 Preview URL: http://YOUR_PUBLIC_IP:${env.PR_PORT}/"
-                echo "💡 This environment will be deleted when PR is closed."
-            }
-        }
-
-        /* --------------------------------------------------------
-           MAIN BRANCH ONLY
-        -------------------------------------------------------- */
-        stage('Image Vulnerability Scan (Trivy Image)') {
-            when { expression { env.IS_PR == "false" } }
+        stage('Image Scan (Trivy Image)') {
             steps {
                 bat """
                     docker run --rm aquasec/trivy:latest image %IMAGE% ^
                         --severity HIGH,CRITICAL ^
-                        --exit-code 1 ^
-                        --light ^
-                        --skip-db-update
+                        --exit-code 1
                 """
             }
         }
 
-        stage('Login to Docker Hub') {
-            when { expression { env.IS_PR == "false" } }
+        /* --------------------------------------------------------
+           DOCKER HUB LOGIN
+        -------------------------------------------------------- */
+        stage('DockerHub Login') {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'dockerhub-creds',
@@ -130,8 +88,10 @@ pipeline {
             }
         }
 
-        stage('Push Image to Docker Hub') {
-            when { expression { env.IS_PR == "false" } }
+        /* --------------------------------------------------------
+           PUSH IMAGE
+        -------------------------------------------------------- */
+        stage('Push Image') {
             steps {
                 bat """
                     docker push %IMAGE_VERSION%
@@ -140,8 +100,10 @@ pipeline {
             }
         }
 
-        stage('Deploy Container') {
-            when { expression { env.IS_PR == "false" } }
+        /* --------------------------------------------------------
+           DEPLOY TO PRODUCTION
+        -------------------------------------------------------- */
+        stage('Deploy to Production') {
             steps {
                 bat """
                     docker stop devopsaba || echo No container
@@ -152,72 +114,104 @@ pipeline {
         }
 
         /* --------------------------------------------------------
-           AUTO-ROLLBACK
+           AUTO-ROLLBACK SYSTEM
         -------------------------------------------------------- */
-        stage('Verify Deployment & Auto Rollback') {
-            when { expression { env.IS_PR == "false" } }
+        stage('Verify & Auto Rollback') {
             steps {
                 script {
 
                     def running = bat(
                         script: 'docker inspect -f "{{.State.Running}}" devopsaba 2>NUL',
                         returnStdout: true
-                    ).trim().toLowerCase().replace('"','')
+                    ).trim().toLowerCase()
 
                     if (!running.contains("true")) {
-                        echo "❌ Deployment Failure — Rolling Back..."
+                        echo "❌ Deployment Failed — Starting Rollback..."
 
-                        bat 'docker stop devopsaba || echo No container'
-                        bat 'docker rm devopsaba || echo No container'
+                        bat "docker stop devopsaba || echo No container"
+                        bat "docker rm devopsaba || echo No container"
 
                         if (!fileExists(env.LAST_SUCCESS_FILE)) {
-                            error("⚠ No previous stable image to rollback to.")
+                            error("❗ No previous stable image exists for rollback.")
                         }
 
-                        def lastImage = readFile(env.LAST_SUCCESS_FILE).trim()
+                        def last = readFile(env.LAST_SUCCESS_FILE).trim()
 
-                        bat """
-                            docker run -d -p 5000:5000 --name devopsaba ${lastImage}
-                        """
+                        bat "docker run -d -p 5000:5000 --name devopsaba ${last}"
 
-                        error("Rollback executed because deployment failed.")
+                        error("Rollback executed — Deployment failed.")
                     }
 
-                    echo "✔ Deployment OK — Saving stable version"
                     writeFile file: env.LAST_SUCCESS_FILE, text: env.IMAGE_VERSION
+                    echo "✔ Deployment Healthy — Saved as stable"
                 }
             }
         }
     }
 
     /* --------------------------------------------------------
-       POST ACTIONS
+       POST: EMAIL + SLACK NOTIFICATIONS
     -------------------------------------------------------- */
     post {
 
-        always {
-            script {
-                if (env.IS_PR == "true") {
-                    echo "🧹 Cleaning PR Environment..."
-                    bat "docker stop ${env.PR_CONTAINER} || echo Not running"
-                    bat "docker rm ${env.PR_CONTAINER} || echo Already removed"
-                }
-            }
-        }
-
         success {
+            // Slack
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
                 message: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
+
+            // Email
+            emailext(
+                to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com, lohithbandla5@gmail.com, bhargavisriinivas@gmail.com",
+                subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+Hello Team,
+
+The CI/CD pipeline completed successfully.
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Status: SUCCESS
+
+Build Log:
+${env.BUILD_URL}console
+
+Regards,
+Jenkins
+                """,
+                attachLog: true
+            )
         }
 
         failure {
+            // Slack
             slackSend(
                 channel: '#ci-cd-pipeline',
                 tokenCredentialId: 'ae899829-98fa-4f99-b61b-9b966850cb88',
                 message: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+
+            // Email
+            emailext(
+                to: "ayushkotegar10@gmail.com, aadyambhat2005@gmail.com, lohithbandla5@gmail.com, bhargavisriinivas@gmail.com",
+                subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+Hello Team,
+
+The CI/CD pipeline has FAILED.
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+
+View logs:
+${env.BUILD_URL}console
+
+Regards,
+Jenkins
+                """,
+                attachLog: true
             )
         }
     }
