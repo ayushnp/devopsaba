@@ -2,6 +2,9 @@
 from flask import Flask, request, render_template_string, send_file, url_for
 import base64, io, os, datetime
 
+
+AWS_SECRET_KEY="EHUHEUDHUEDEJDUEHFUEJEK"
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB upload limit
 
