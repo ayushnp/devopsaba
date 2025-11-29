@@ -3,7 +3,8 @@ from flask import Flask, request, render_template_string, send_file, url_for
 import base64, io, os, datetime
 
 
-AWS_SECRET_KEY="EHUHEUDHUEDEJDUEHFUEJEK"
+AWS_SECRET_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+
 
 
 app = Flask(__name__)
