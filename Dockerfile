@@ -1,51 +1,31 @@
-<<<<<<< HEAD
-# Use an official Python runtime as a base image
+# -----------------------------
+#   Stage 1 — Base Image
+# -----------------------------
 FROM python:3.10-slim
 
-# Set the working directory inside the container
-WORKDIR /app
-
-# Copy the requirements file first to leverage Docker cache
-COPY requirements.txt .
-
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the rest of the application code
-COPY . .
-
-# Expose port 5000 (Flask's default port)
-EXPOSE 5000
-
-# Set environment variables
-ENV FLASK_APP=app.py
+# Avoid Python buffering logs
 ENV PYTHONUNBUFFERED=1
 
-# Run the application
-# --host=0.0.0.0 is required for the container to be accessible from outside
-CMD ["flask", "run", "--host=0.0.0.0"]
-=======
-# Stage 1: Build frontend
-FROM node:18-alpine AS frontend-build
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm install
-COPY frontend/ ./
-RUN npm run build
-
-# Stage 2: Backend
-FROM node:18-alpine
+# Create app directory
 WORKDIR /app
 
-COPY backend/package*.json ./
-RUN npm install --production
+# Install system dependencies required by SQLAlchemy (PostgreSQL/MySQL)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY backend/ ./
-COPY --from=frontend-build /app/frontend/dist ./public
+# Copy requirements first for caching
+COPY requirements.txt .
 
-RUN mkdir -p uploads
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-EXPOSE 4000
+# Copy full project
+COPY . .
 
-CMD ["node", "src/server.js"]
->>>>>>> dea774673e1570d06e8162b6ecfbe154a1c1e3ca
+# Expose Flask port
+EXPOSE 5000
+
+# Run Flask app
+CMD ["python", "app.py"]
